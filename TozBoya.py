@@ -53,6 +53,11 @@ def kendini_dene() -> int:
         from ezdxf.addons import odafc  # noqa: F401
     except ImportError:
         hatalar.append("DWG modülü (ezdxf.addons.odafc)")
+    try:  # GitHub'dan güncelleme: HTTPS desteği pakette olmalı
+        import ssl  # noqa: F401
+        import guncelleme  # noqa: F401
+    except ImportError:
+        hatalar.append("güncelleme (ssl)")
     a = Ayarlar()
     k = Kalem("plaka", {"tur": "2d", "yuz_alani": beklenen, "cevre": 600 + 20 * math.pi, "olcu": [200, 100],
                         "kalinlik": 2.0}, 10, toz=a.tozlar[0].ad)
@@ -87,6 +92,9 @@ def main() -> int:
 
     w = pencere.AnaPencere()
     w.show()
+    if getattr(sys, "frozen", False) and w.ayar.guncelleme:  # paketlenmiş programda açılışta yeni sürüm denetimi
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, w.guncelleme_denetle)
     dosyalar = [a for a in sys.argv[1:] if not a.startswith("-") and os.path.isfile(a)]
     projeler = [d for d in dosyalar if d.lower().endswith(".tozboya")]
     if projeler:
