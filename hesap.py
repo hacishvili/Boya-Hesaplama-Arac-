@@ -98,6 +98,10 @@ def kaynak_alani(k: Dict[str, Any]) -> float:
         kenar = float(k["cevre"]) * float(k.get("kalinlik", 0.0)) if k.get("kenar", True) else 0.0
         return yuz + kenar
     if tur == "3d":
+        if k.get("profil"):
+            import profil
+            return profil.profil_alani(k["profil"], k.get("ic_boya", "uçlardan"), float(k.get("ic_derinlik", 0.0)),
+                                       bool(k.get("uc_boya", True)))
         return float(k["alan"]) * float(k.get("katsayi", 1.0))
     if tur == "kalip":
         return kaliplar.alan(k["kalip"], k.get("deger", {}))
@@ -114,6 +118,16 @@ def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
         kenar = f", kenarlar (t = {sayi(k.get('kalinlik', 0), 2)} mm)" if k.get("kenar", True) else ", kenarsız"
         delik = f", {k.get('delik', 0)} delik" if k.get("delik") else ""
         return f"2D açınım {sayi(w, 1)} × {sayi(h, 1)} mm{delik}; {yuz}{kenar}"
+    if tur == "3d" and k.get("profil"):
+        p = k["profil"]
+        ic = k.get("ic_boya", "uçlardan")
+        s = f"3D profil {sayi(p['kesit'][0], 1)} × {sayi(p['kesit'][1], 1)}, boy {sayi(p['boy'], 0)} mm"
+        if p.get("ic"):
+            s += ("; iç yüzey " + (f"uçlardan {sayi(float(k.get('ic_derinlik', 0)), 0)} mm" if ic == "uçlardan"
+                                   else ic))
+        if not k.get("uc_boya", True):
+            s += "; uç kesitleri boyanmaz"
+        return s
     if tur == "3d":
         s = f"3D gövde ({k.get('varlik', '')})"
         if not k.get("kapali", True):

@@ -277,6 +277,10 @@ class IceAktar(QDialog):
                 ad = self.dosya_adi + (f" – {g.ad}" if len(s.govdeler) > 1 else "")
                 kaynak = None if g.hata else {"tur": "3d", "alan": g.alan, "kapali": g.kapali, "katsayi": 1.0,
                                               "varlik": g.tur}
+                if kaynak and g.profil is not None:
+                    # profil: dış, iç ve uç yüzeyler ayrı; iç yüzey uçlardan boşluk ölçüsü kadar boyanır
+                    kaynak.update(profil=g.profil.sozluk(), ic_boya="uçlardan",
+                                  ic_derinlik=round(g.profil.bosluk, 1), uc_boya=True)
                 self.ogeler.append(("3d", g.ag, kaynak, ad, g.hata))
             for i, p in enumerate(s.parcalar):
                 ad = self.dosya_adi + (f" – parça {i + 1}" if len(s.parcalar) > 1 else "")
@@ -354,6 +358,10 @@ class IceAktar(QDialog):
                 olcu = f"{sayi(x1 - x0, 1)} × {sayi(y1 - y0, 1)} × {sayi(z1 - z0, 1)}"
                 durum = hata or ("" if kaynak and kaynak["kapali"] else
                                  "açık yüzey: sac yüzeyi ise ayrıntıdan × 2 yüz seçin")
+                if kaynak and kaynak.get("profil"):
+                    pr = kaynak["profil"]
+                    durum = ("profil: dış, iç (uçlardan " + sayi(kaynak["ic_derinlik"], 0) + " mm), uç kesitleri"
+                             if pr.get("ic") else "profil (dolu): dış, uç kesitleri")
             else:
                 olcu, durum = "", hata
             alan = sayi(kaynak_alani(kaynak) / 1e6, 4) if kaynak else "—"
@@ -855,6 +863,31 @@ class AnaPencere(QMainWindow):
             kn.setChecked(bool(kaynak.get("kenar", True)))
             kn.toggled.connect(lambda b: self._kaynak(r, kenar=b))
             gf.addRow("", kn)
+        elif kaynak["tur"] == "3d" and kaynak.get("profil"):
+            pr = kaynak["profil"]
+            ic_alan = sum(a for a, _ in pr.get("ic", []))
+            g.setTitle("3D profil (yüzeyler otomatik tanındı)")
+            gf.addRow("Ölçü", QLabel(f"{sayi(pr['kesit'][0], 1)} × {sayi(pr['kesit'][1], 1)} mm, boy "
+                                     f"{sayi(pr['boy'], 1)} mm"))
+            gf.addRow("Dış yüzey", QLabel(f"{sayi(pr['dis'] / 1e6, 4)} m²"))
+            gf.addRow("Uç kesitleri", QLabel(f"{sayi(pr['uc'] / 1e6, 4)} m²"))
+            if pr.get("ic"):
+                gf.addRow("İç yüzey", QLabel(f"{sayi(ic_alan / 1e6, 4)} m² (boşluk {sayi(pr.get('bosluk', 0), 1)} mm)"))
+                icb = QComboBox()
+                icb.addItems(["Uçlardan derinlik kadar", "Tamamı", "Boyanmaz"])
+                secim = ["uçlardan", "tamamı", "boyanmaz"]
+                icb.setCurrentIndex(secim.index(kaynak.get("ic_boya", "uçlardan")))
+                der = _cift(0.0, 10000.0, float(kaynak.get("ic_derinlik", 0.0)), 1, 5, "mm")
+                der.setToolTip("Toz açık uçtan içeri bu derinliğe kadar girer (her uçtan); yaklaşık boşluk ölçüsü kadar")
+                der.setEnabled(icb.currentIndex() == 0)
+                icb.currentIndexChanged.connect(lambda i: (der.setEnabled(i == 0), self._kaynak(r, ic_boya=secim[i])))
+                der.valueChanged.connect(lambda x: self._kaynak(r, ic_derinlik=x))
+                gf.addRow("İç yüzey boyası", icb)
+                gf.addRow("İç boya derinliği", der)
+            ucb = QCheckBox("Uç kesitleri boyanır")
+            ucb.setChecked(bool(kaynak.get("uc_boya", True)))
+            ucb.toggled.connect(lambda b: self._kaynak(r, uc_boya=b))
+            gf.addRow("", ucb)
         elif kaynak["tur"] == "3d":
             gf.addRow("Yüzey alanı", QLabel(f"{sayi(kaynak['alan'] / 1e6, 4)} m² ({kaynak.get('varlik', '')})"))
             if not kaynak.get("kapali", True):

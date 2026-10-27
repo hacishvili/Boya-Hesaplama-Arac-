@@ -40,6 +40,7 @@ class Govde3D:
     ag: Optional[Ag] = None
     hata: str = ""                 # dolu: alan hesaplanamadı, nedeni
     tani: str = ""                 # hata raporu için ham veri (ACIS yüzey kaydı)
+    profil: Optional[object] = None  # profil.Profil (mm, mm²): dış / iç / uç yüzeyler
 
     @property
     def alan(self) -> float:
@@ -338,5 +339,11 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         if g.hata:
             hata = (g.hata + ". Bu gövdenin alanı DXF'ten hesaplanamıyor: çizimi STL olarak isteyin "
                     "(AutoCAD: STLOUT) ya da parçayı kalıptan ekleyin.")
-        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani)))
+        pr = None
+        if g.profil is not None and not hata:
+            pr = g.profil
+            pr.boy, pr.kesit, pr.bosluk = pr.boy * k, (pr.kesit[0] * k, pr.kesit[1] * k), pr.bosluk * k
+            pr.dis, pr.uc = pr.dis * k * k, pr.uc * k * k
+            pr.ic = [(a * k * k, L * k) for a, L in pr.ic]
+        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr))
     return out

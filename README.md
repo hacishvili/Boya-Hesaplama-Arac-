@@ -91,6 +91,15 @@ Daireler tam formülle (πr²) hesaplanır. Yaylar en çok 0,0005 mm sehimle ço
   vermez; gövde hata ile listelenir. O zaman çizimi STL olarak isteyin (AutoCAD'de `STLOUT`) ya da parçayı
   kalıptan ekleyin.
 
+**Profiller (3D katı).** Boyu kesitinin en az 2,5 katı olan katılarda yüzeyler otomatik ayrılır:
+- **dış yüzey:** ortadaki kesitin dış konturundaki yüzler;
+- **iç yüzey:** boşluğun duvarları (kesitin içteki konturu);
+- **uç kesitleri:** düz ya da gönyeli kesimler.
+
+Varsayılan boyama: dış yüzey ve uç kesitleri tam; iç yüzey her uçtan boşluk ölçüsü kadar derinliğe (kalıplardaki
+"açık uç" gibi). Ayrıntı panelinde iç yüzey "tamamı" ya da "boyanmaz" seçilebilir, derinlik ve uç kesitleri
+değiştirilebilir. Plaka, dirsek gibi profil olmayan katıların bütün yüzeyi boyanmış sayılır.
+
 **STL.** STL'de üçgen alanları toplanır. Dosyada birim yazmaz; mm sayılır ve içe aktarırken değiştirilebilir.
 Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüzeyden çok az küçük çıkar.
 
@@ -103,7 +112,7 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 - **kapaklı:** kaynaklı kapakların dış yüzü boyanır.
 - **tapalı:** uçlar ve iç boyanmaz.
 
-**Dikkat.** 3D modelde borunun iç yüzeyi de alana girer. İçi boyanmıyorsa o kısmı maskeye yazın.
+**Dikkat.** STL ve yüzey (mesh) modellerinde iç yüzey ayrılmaz; borunun içi boyanmıyorsa o kısmı maskeye yazın.
 
 ## Dosyalar
 
@@ -111,6 +120,7 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 |---|---|
 | `geometri.py` | kontur alanı / çevresi, iç içe yerleşim, çizgi zincirleme, 3D ağ alanı ve gövdeler |
 | `dxf_oku.py` | DXF / DWG: birim, katman, kesikli çizgi, bloklar, 2D konturlar, 3D ağlar, ACIS katılar |
+| `profil.py` | profil katılarda dış / iç / uç yüzeylerin tanınması, iç yüzeyin uçlardan boyanan kısmı |
 | `acis_alan.py` | ACIS (SAT / SAB) katı gövdelerin yüzey alanı: düzlem, silindir, koni, küre, torus, spline |
 | `stl_oku.py` | ikili ve metin STL |
 | `kaliplar.py` | boru, profil, konik ayak, çubuk, lama, sac formülleri |

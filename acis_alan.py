@@ -680,8 +680,8 @@ class Yuzey:
         raise AcisHatasi("bu yüzey türünde döngü integrali yok")
 
 
-def yuz_alani(face: Kayit, donus, tol: float, onbellek: dict) -> Tuple[float, List[List[V3]]]:
-    """Yüzün alanı (yerel birimde) ve önizleme için döngüleri (dünya koordinatında)."""
+def yuz_alani(face: Kayit, tol: float, onbellek: dict) -> Tuple[float, List[List[V3]], "Yuzey"]:
+    """Yüzün alanı, döngüleri ve yüzeyi (yerel koordinatta)."""
     p = face.isaretciler()
     # face: [desen, sonraki yüz, döngü, kabuk, alt kabuk, yüzey]
     if len(p) < 6 or p[5] is None:
@@ -694,9 +694,9 @@ def yuz_alani(face: Kayit, donus, tol: float, onbellek: dict) -> Tuple[float, Li
         loop = loop.isaretciler()[1]
     if not donguler:  # döngüsüz yüz: yüzeyin tamamı (kapalı yüzeylerde)
         if yuzey.tur == "kure":
-            return 4 * math.pi * yuzey.R ** 2, []
+            return 4 * math.pi * yuzey.R ** 2, [], yuzey
         if yuzey.tur == "torus":
-            return 4 * math.pi ** 2 * yuzey.R * yuzey.r, []
+            return 4 * math.pi ** 2 * yuzey.R * yuzey.r, [], yuzey
         raise AcisHatasi("yüzün döngüsü yok")
     yuz_ters = bool(face.sozcukler()) and _ters_mi(face.sozcukler()[0])
 
@@ -707,7 +707,7 @@ def yuz_alani(face: Kayit, donus, tol: float, onbellek: dict) -> Tuple[float, Li
                 _spline_tam_mi(b, pts, tol)
             except AcisHatasi:
                 continue
-            return b.alan(lambda q: q), [[donus(q) for q in d] for d in pts]
+            return b.alan(lambda q: q), pts, yuzey
         raise AcisHatasi(f"kırpılmış ya da tanınmayan spline yüz ({yuzey.alt_tur})")
 
     if yuzey.tur == "koni" and yuzey.egim != 0.0:
@@ -758,7 +758,7 @@ def yuz_alani(face: Kayit, donus, tol: float, onbellek: dict) -> Tuple[float, Li
         yedek = romberg(y1, y2, y3)
         if abs(alan - yedek) > 1e-6 * max(1.0, alan):
             alan = yedek
-    return alan, [[donus(q) for q in d] for d in dl]
+    return alan, dl, yuzey
 
 
 def _spline_tam_mi(b: Bs3Yuzey, donguler: List[List[V3]], tol: float):
@@ -819,6 +819,7 @@ class Govde:
         self.yuz_sayisi = 0
         self.kapali = True
         self.tani: List[str] = []           # hesaplanamayan yüzlerin ham yüzey verisi (hata raporu için)
+        self.profil = None                  # profil.Profil: dış / iç / uç yüzeyler (profilse)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -868,20 +869,26 @@ def govdeler(e) -> List[Govde]:
                         face = face.isaretciler()[1]
                     shell = sp[1]
                 boyut = _boyut(yuzler)
+                bilgiler = []
                 tol = max(1e-6, boyut * 1e-6) * 50
                 for face in yuzler:
                     g.yuz_sayisi += 1
                     yz = face.isaretciler()[5]
                     ad = yz.ad if yz is not None else "?"
                     try:
-                        a, d = yuz_alani(face, donus, tol, onbellek)
+                        a, d, yuzey = yuz_alani(face, tol, onbellek)
+                        dunya = [[donus(q) for q in dd] for dd in d]
                         g.alan += a
-                        g.donguler.extend(d)
+                        g.donguler.extend(dunya)
+                        bilgiler.append(_yuz_bilgisi(a * olcek * olcek, dunya, yuzey, donus, olcek))
                     except AcisHatasi as h:
                         turler[f"{ad}: {h}"] = turler.get(f"{ad}: {h}", 0) + 1
                         if len(g.tani) < 3 and yz is not None:
                             g.tani.append(f"{ad}: {h}\n{_ham_metin(yz)}")
                 g.kapali = _kapali_mi(yuzler)
+                if not turler:
+                    import profil
+                    g.profil = profil.coz(bilgiler)
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:
@@ -895,6 +902,20 @@ def govdeler(e) -> List[Govde]:
         g.hata = "ACIS verisinde katı gövde yok"
         out.append(g)
     return out
+
+
+def _yuz_bilgisi(alan: float, dunya: List[List[V3]], yuzey: "Yuzey", donus, olcek: float):
+    """Profil tanıma için yüzün dünya koordinatındaki bilgisi."""
+    import profil
+    o = donus((0.0, 0.0, 0.0))
+    yon = lambda d: _birim(_cik(donus(d), o))
+    b = profil.YuzBilgi(alan, dunya, yuzey.tur)
+    if yuzey.tur == "duzlem":
+        b.normal = yon(yuzey.n)
+    elif yuzey.tur == "koni":
+        b.eksen, b.merkez = yon(yuzey.a), donus(yuzey.c)
+        b.r0, b.egim = yuzey.r0 * olcek, yuzey.egim
+    return b
 
 
 def _ham_metin(k: Kayit, sinir: int = 6000) -> str:
