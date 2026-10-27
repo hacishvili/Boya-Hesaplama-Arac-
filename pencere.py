@@ -974,7 +974,9 @@ class AnaPencere(QMainWindow):
     def hakkinda(self):
         QMessageBox.about(self, UYGULAMA,
                           f"<b>{UYGULAMA}</b> {SURUM}<br><br>Toz = alan × kalınlık × yoğunluk / transfer verimi."
-                          "<br>Alan DXF'ten (2D açınım, 3D yüzey / düz yüzlü katı), STL'den ya da kalıptan.")
+                          "<br>Alan DXF'ten (2D açınım, 3D yüzey / düz yüzlü katı), STL'den ya da kalıptan."
+                          "<br><br>© 2026 Enes Özbek · MIT lisansı (LICENSE)<br>Qt / PySide6 (LGPL-3.0), ezdxf (MIT) ve "
+                          "diğer bileşenler: UCUNCU_TARAF_LISANSLARI.txt")
 
     # -- sürükle bırak / kapanış
     def dragEnterEvent(self, e):

@@ -99,3 +99,10 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 | `proje.py`, `rapor.py` | `.tozboya` proje dosyası, ayarlar, CSV ve PDF raporun içeriği |
 | `pencere.py`, `TozBoya.py` | arayüz ve başlatıcı (`--self-test`: paketin kendi denemesi) |
 | `test_*.py` | testler: her alan formülle bağımsız olarak karşılaştırılır |
+
+## Lisans
+
+MIT lisansı, © 2026 Enes Özbek (`LICENSE`). Program ücretsizdir: herkes kullanabilir, değiştirebilir ve
+paylaşabilir; tek koşul, kopyalarda lisans metninin kalmasıdır. Kullanılan açık kaynak bileşenler (Qt / PySide6:
+LGPL-3.0, ezdxf: MIT ve diğerleri) kendi lisanslarıyla dağıtılır: `UCUNCU_TARAF_LISANSLARI.txt` ve
+`ucuncu_taraf_lisanslari/`. Windows paketi bu dosyaları exe'nin yanına koyar.

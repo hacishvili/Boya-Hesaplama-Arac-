@@ -1,0 +1,43 @@
+Toz Boya Hesabı — üçüncü taraf bileşenler ve lisansları
+=======================================================
+
+Programın kendi kodu MIT lisanslıdır (LICENSE, telif hakkı Enes Özbek). Program aşağıdaki açık kaynak
+bileşenleri kullanır; her bileşen kendi lisansıyla dağıtılır ve programın lisansı onlara uygulanmaz.
+Lisans metinleri: ucuncu_taraf_lisanslari/ klasörü.
+
+Bileşen                                   Lisans                                   Kaynak
+----------------------------------------  ---------------------------------------  ------------------------------------
+Python                                    PSF License                              https://www.python.org/
+Qt for Python (PySide6, shiboken6) / Qt   LGPL-3.0                                 https://www.qt.io/qt-for-python
+ezdxf                                     MIT                                      https://github.com/mozman/ezdxf
+NumPy (ezdxf kullanır)                    BSD-3-Clause ve alt bileşen lisansları   https://numpy.org/
+fontTools (ezdxf kullanır)                MIT                                      https://github.com/fonttools/fonttools
+pyparsing (ezdxf kullanır)                MIT                                      https://github.com/pyparsing/pyparsing
+typing_extensions (ezdxf kullanır)        PSF-2.0                                  https://github.com/python/typing_extensions
+PyInstaller önyükleyicisi (Windows paketi) GPL-2.0+ (önyükleyici istisnasıyla)     https://pyinstaller.org/
+Microsoft Visual C++ çalışma zamanı       Microsoft dağıtım izni ("Distributable   https://learn.microsoft.com/visualstudio/
+(Python'un vcruntime DLL'leri)            Code")                                   releases/2022/redistribution
+
+Genel lisans metinleri (ucuncu_taraf_lisanslari/):
+  LGPL-3.0.txt, GPL-3.0.txt   Qt / PySide6 / shiboken6 (LGPL-3.0, GPL-3.0'a ek izinler olarak yazıldığından
+                              GPL-3.0 metni de verilir)
+  PyInstaller.txt             PyInstaller önyükleyicisi
+Bileşen klasörleri (telif satırlı metinler): Python, ezdxf, numpy, fontTools, pyparsing, typing_extensions.
+Qt kütüphanelerinin içinde derlenmiş bileşenler (HarfBuzz, PCRE2, md4c ...) ve lisansları:
+https://doc.qt.io/qt-6/licenses-used-in-qt.html
+
+LGPL bileşenleri: değiştirme ve kaynak kodu
+--------------------------------------------
+Qt, PySide6 ve shiboken6 programın koduna gömülmez; Windows paketinde _internal\PySide6\ ve
+_internal\shiboken6\ klasörlerinde ayrı DLL / modül dosyaları olarak, değiştirilmeden dağıtılır. Bu
+kütüphaneleri kendi derlediğiniz ya da değiştirdiğiniz uyumlu (aynı arayüzlü) sürümlerle, aynı adlı dosyaların
+yerine koyarak değiştirebilirsiniz; kaynaktan çalıştırırken (CALISTIR.cmd) pip ile kurulu PySide6 kullanılır.
+
+Kaynak kodu (requirements.txt'teki sürümler):
+  Qt 6.11.2                    https://download.qt.io/official_releases/qt/6.11/6.11.2/
+  PySide6 / shiboken6 6.11.2   https://pypi.org/project/PySide6/6.11.2/ ve https://code.qt.io/pyside/pyside-setup.git
+
+Yazılı teklif: Bu programla dağıtılan LGPL bileşenlerinin, programdaki sürümlere karşılık gelen tam kaynak
+kodunu, programı aldığınız tarihten başlayarak en az üç yıl boyunca isteyen herkese bedelsiz (yalnız varsa
+fiziksel ortam ve gönderim maliyeti karşılığında) veririz. İstek için programın GitHub deposunda
+(https://github.com/hacishvili/Boya-Hesaplama-Arac-) bir konu (issue) açın.

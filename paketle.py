@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Windows paketi (Python gerektirmez): PyInstaller ile dist/TozBoyaHesap/TozBoyaHesap.exe ve
 dist/TozBoyaHesap_<sürüm>.zip. Paket bitince exe "--self-test" ile çalıştırılır; başarısızsa paket hatalı sayılır.
+Lisans dosyaları (LICENSE, üçüncü taraf lisansları) exe'nin yanına kopyalanır.
 
   python paketle.py            (önce: python -m pip install -r requirements-paket.txt)
 """
@@ -13,6 +14,7 @@ from surum import SURUM
 
 AD = "TozBoyaHesap"
 KOK = os.path.dirname(os.path.abspath(__file__))
+LISANS_DOSYALARI = ["LICENSE", "UCUNCU_TARAF_LISANSLARI.txt", "ucuncu_taraf_lisanslari"]
 # ezdxf eklentilerinin ve Qt'nin kullanılmayan parçaları (paket küçülür; kendi denemesi eksik kalanı yakalar)
 GEREKSIZ = ["matplotlib", "tkinter", "PIL", "lxml", "yaml", "ezdxf.addons", "IPython",
             "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtNetwork", "PySide6.QtPdf", "PySide6.QtSvg",
@@ -38,6 +40,9 @@ def main() -> int:
         print("PAKET KENDİ DENEMESİNDEN GEÇMEDİ.")
         return 1
     print("Paketin kendi denemesi başarılı.")
+    hedef = os.path.join("dist", AD)
+    for f in LISANS_DOSYALARI:
+        (shutil.copytree if os.path.isdir(f) else shutil.copy2)(f, os.path.join(hedef, f))
     zip_yol = shutil.make_archive(os.path.join("dist", f"{AD}_{SURUM}"), "zip", "dist", AD)
     print("Hazır:", exe, "ve", zip_yol)
     return 0
