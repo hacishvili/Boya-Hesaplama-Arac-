@@ -34,6 +34,10 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
 - **Kalıptan ekle:** yuvarlak boru, kutu profil, konik ayak, dolu çubuk, lama ve sac levha. Çizimden alan
   çıkmayan parçalar (teknik resim, boru ayaklar) için kullanılır.
 - **Elle alan:** alanı bilinen parçalar için doğrudan m² girilir.
+- **Açınım (DXF):** konik ya da silindirik sac parçanın (konik ayak, boru) açınımını DXF olarak kaydeder.
+  Çaplar dış / orta / iç yüzeyden verilir; açınım nötr eksenden (K = 0,5, değiştirilebilir) hesaplanır: kesik
+  konide halka dilimi (iç ve dış yarıçap, açı), silindirde dikdörtgen. Seçili kalem konik ayak / boru kalıbı ya da
+  3D konik profilse ölçüler kendiliğinden dolar (3D boruda sac kalınlığı modelden).
 - **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu (teorik yöntemde film kalınlığı).
   Birden çok kalem seçilince (Ctrl / Shift) toz hepsine birden atanır.
 - **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, DWG için ODA
@@ -126,6 +130,7 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 |---|---|
 | `geometri.py` | kontur alanı / çevresi, iç içe yerleşim, çizgi zincirleme, 3D ağ alanı ve gövdeler |
 | `dxf_oku.py` | DXF / DWG: birim, katman, kesikli çizgi, bloklar, 2D konturlar, 3D ağlar, ACIS katılar |
+| `acinim.py` | konik / silindirik sac açınımı ve DXF'i |
 | `profil.py` | profil katılarda dış / iç / uç yüzeylerin tanınması, iç yüzeyin uçlardan boyanan kısmı |
 | `acis_alan.py` | ACIS (SAT / SAB) katı gövdelerin yüzey alanı: düzlem, silindir, koni, küre, torus, spline |
 | `stl_oku.py` | ikili ve metin STL |

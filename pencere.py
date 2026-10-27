@@ -553,6 +553,116 @@ class KalipPenceresi(QDialog):
                      {"tur": "kalip", "kalip": self.form.ad, "deger": d}, self.adet.value(), toz=self.toz)
 
 
+# ---------------------------------------------------------------- açınım
+
+def acinim_olculeri(k: Optional[Kalem]) -> Optional[Dict]:
+    """Seçili kalemden açınım ölçüleri (dış çaplar): konik ayak / yuvarlak boru kalıbı ya da 3D konik profil."""
+    if k is None:
+        return None
+    ky = k.kaynak
+    if ky.get("tur") == "kalip" and ky.get("kalip") in ("Konik ayak (boru)", "Yuvarlak boru"):
+        d = {**kaliplar.varsayilanlar(ky["kalip"]), **ky.get("deger", {})}
+        if ky["kalip"] == "Yuvarlak boru":
+            return {"d1": d["D"], "d2": d["D"], "boy": d["L"], "t": d["t"]}
+        return {"d1": d["D2"], "d2": d["D1"], "boy": d["L"], "t": d["t"]}
+    koni = (ky.get("profil") or {}).get("koni")
+    if ky.get("tur") == "3d" and koni:
+        return dict(koni)
+    return None
+
+
+class AcinimPenceresi(QDialog):
+    """Konik / silindirik sac açınımı: ölçüler, önizleme, DXF."""
+
+    def __init__(self, olcu: Optional[Dict] = None, ad: str = "", parent=None):
+        super().__init__(parent)
+        import acinim
+        self.acinim = acinim
+        self.ad = ad
+        self.setWindowTitle("Açınım (DXF)")
+        self.resize(760, 520)
+        ana = QHBoxLayout(self)
+        sol = QVBoxLayout()
+        ana.addLayout(sol)
+        f = QFormLayout()
+        sol.addLayout(f)
+        o = olcu or {}
+        self.d_alt = _cift(0.1, 100000.0, float(o.get("d1") or 25.0), 2, 1, "mm")
+        self.d_ust = _cift(0.1, 100000.0, float(o.get("d2") or 40.0), 2, 1, "mm")
+        self.boy = _cift(0.1, 100000.0, float(o.get("boy") or 150.0), 2, 1, "mm")
+        self.t = _cift(0.0, 100.0, float(o.get("t") or 1.5), 2, 0.1, "mm")
+        self.yuzey = QComboBox()
+        self.yuzey.addItems(["dış", "orta", "iç"])
+        self.k = _cift(0.0, 1.0, 0.5, 2, 0.05)
+        self.k.setToolTip("Nötr eksenin içten uzaklığı / kalınlık. 0,5: kalınlığın ortası")
+        f.addRow("Alt çap", self.d_alt)
+        f.addRow("Üst çap", self.d_ust)
+        f.addRow("Boy (eksen)", self.boy)
+        f.addRow("Sac kalınlığı", self.t)
+        f.addRow("Çaplar hangi yüzeyden", self.yuzey)
+        f.addRow("K faktörü", self.k)
+        if o:
+            not_ = QLabel("Ölçüler seçili parçadan alındı" + ("" if o.get("t") else "; kalınlık modelde yok, girin")
+                          + ".")
+            not_.setWordWrap(True)
+            sol.addWidget(not_)
+        self.sonuc = QLabel()
+        self.sonuc.setWordWrap(True)
+        sol.addWidget(self.sonuc)
+        sol.addStretch(1)
+        b = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Close)
+        b.button(QDialogButtonBox.Save).setText("DXF kaydet…")
+        b.button(QDialogButtonBox.Close).setText("Kapat")
+        b.accepted.connect(self.kaydet)
+        b.rejected.connect(self.reject)
+        self.kaydet_dugmesi = b.button(QDialogButtonBox.Save)
+        sol.addWidget(b)
+        self.onizleme = Onizleme()
+        self.onizleme.setMinimumWidth(380)
+        ana.addWidget(self.onizleme, 1)
+        for w in (self.d_alt, self.d_ust, self.boy, self.t, self.k):
+            w.valueChanged.connect(self.hesapla)
+        self.yuzey.currentIndexChanged.connect(self.hesapla)
+        self.a = None
+        self.hesapla()
+
+    def hesapla(self, *_):
+        try:
+            self.a = self.acinim.hesapla(self.d_alt.value(), self.d_ust.value(), self.boy.value(), self.t.value(),
+                                         self.yuzey.currentText(), self.k.value())
+        except ValueError as h:
+            self.a = None
+            self.sonuc.setText(f"<span style='color:#a02020'>{h}</span>")
+            self.onizleme.goster(None)
+            self.kaydet_dugmesi.setEnabled(False)
+            return
+        a = self.a
+        w, h = a.olcu
+        if a.silindir:
+            ayr = f"Dikdörtgen: <b>{sayi(w, 2)} × {sayi(h, 2)} mm</b> (nötr çap Ø{sayi(a.d1, 2)})"
+        else:
+            ayr = (f"Halka dilimi: iç R <b>{sayi(a.Ra, 2)}</b>, dış R <b>{sayi(a.Rb, 2)}</b> mm, açı "
+                   f"<b>{sayi(a.aci, 3)}°</b><br>eğik boy {sayi(a.egik, 2)} mm, nötr çaplar Ø{sayi(a.d1, 2)} / "
+                   f"Ø{sayi(a.d2, 2)}<br>Sac ölçüsü {sayi(w, 1)} × {sayi(h, 1)} mm")
+        self.sonuc.setText(ayr + f"<br>Açınım alanı (bir yüz): {sayi(a.alan / 1e6, 4)} m²")
+        from geometri import Kontur, Parca2D
+        self.onizleme.goster(Parca2D(Kontur(a.cevre(180))), "")
+        self.kaydet_dugmesi.setEnabled(True)
+
+    def kaydet(self):
+        if self.a is None:
+            return
+        yol, _ = QFileDialog.getSaveFileName(self, "Açınım DXF", (self.ad or "acinim") + "_acinim.dxf", "DXF (*.dxf)")
+        if not yol:
+            return
+        if not yol.lower().endswith(".dxf"):
+            yol += ".dxf"
+        try:
+            self.acinim.dxf_yaz(yol, self.a, self.ad)
+        except OSError as h:
+            QMessageBox.warning(self, UYGULAMA, f"Yazılamadı:\n{h}")
+
+
 # ---------------------------------------------------------------- ayarlar
 
 class AyarPenceresi(QDialog):
@@ -754,6 +864,7 @@ class AnaPencere(QMainWindow):
         eylem("Çizim ekle (DXF / DWG / STL)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
         eylem("Kalıptan ekle", self.kalip_ekle, QStyle.SP_FileDialogDetailedView, "Ctrl+K", menu_kalem)
         eylem("Elle alan", self.elle_ekle, QStyle.SP_FileDialogNewFolder, None, menu_kalem)
+        eylem("Açınım (DXF)", self.acinim, None, None, menu_kalem)
         eylem("Çoğalt", self.cogalt, None, "Ctrl+Shift+D", menu_kalem, aracta=False)
         eylem("Sil", self.sil, QStyle.SP_TrashIcon, QKeySequence.Delete, menu_kalem)
         arac.addSeparator()
@@ -1120,6 +1231,12 @@ class AnaPencere(QMainWindow):
                                    toz=self._varsayilan_toz()))
         self._degisti()
         self._yenile(len(self.kalemler) - 1)
+
+    def acinim(self):
+        """Konik / silindirik sac açınımı; seçili kalem konik ayak, boru ya da 3D konik profilse ölçüleri ondan."""
+        r = self._secili()
+        k = self.kalemler[r] if r >= 0 else None
+        AcinimPenceresi(acinim_olculeri(k), k.ad if k else "", self).exec()
 
     def cogalt(self):
         r = self._secili()
