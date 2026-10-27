@@ -1,0 +1,40 @@
+name: Windows
+
+# PR'da ve main'e gönderide bir kez çalışır (dalda her gönderide hem push hem pull_request iki kez çalıştırıyordu)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-ve-paket:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Paketler
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-paket.txt
+      - name: Testler
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s . -p "test_*.py" -v
+      - name: Paket
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # başarısızsa günlüğün sonu hata notu olarak da yazılır (iş günlüğü indirilemeyen yerlerden okunabilsin)
+        run: |
+          set -o pipefail
+          python paketle.py 2>&1 | tee paket.log || {
+            echo "::error title=Paket::$(tail -n 40 paket.log | tr -d '\r' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
+            exit 1
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TozBoyaHesap-windows
+          path: dist/TozBoyaHesap_*.zip
