@@ -46,6 +46,11 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
 - **Kalıptan ekle:** yuvarlak boru, kutu profil, konik ayak, dolu çubuk, lama ve sac levha. Çizimden alan
   çıkmayan parçalar (teknik resim, boru ayaklar) için kullanılır.
 - **Elle alan:** alanı bilinen parçalar için doğrudan m² girilir.
+- **PDF teknik resim:** Çizim ekle ile PDF seçilirse resimdeki yazı okunur: antetteki PARÇA ADI / ÜRÜN ADI, `RENK:`,
+  ölçü yazıları, `K:6` (kalınlık), `P:ad` (ad), `ADET:`. Renk bir tozun adıyla eşleşirse toz seçilir. Alan iki yoldan:
+  **abkant açınımı** (varsayılan: kenar dış ölçüleri, genişlik, kalınlık, iç radius ve K-faktörüyle düz levha;
+  Kalıptan ekle'de de "Abkant sac (açınım)" olarak var) ya da **elle alan**. Alan çizgilerden hesaplanmaz.
+  Resim ya da taranmış PDF'te yazı yoktur; bu durumda uyarır.
 - **Açınım (DXF):** konik ya da silindirik sac parçanın (konik ayak, boru) açınımını DXF olarak kaydeder.
   Çaplar dış / orta / iç yüzeyden verilir; açınım nötr eksenden (K = 0,5, değiştirilebilir) hesaplanır: kesik
   konide halka dilimi (iç ve dış yarıçap, açı), silindirde dikdörtgen. Seçili kalem konik ayak / boru kalıbı ya da

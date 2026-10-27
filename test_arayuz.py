@@ -57,6 +57,40 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(yeni[0].ad, "ÖN PLAKA")
         self.assertAlmostEqual(yeni[0].kaynak["kalinlik"], 4.0)
 
+    def test_pdf_taslak_kalem(self):
+        import test_pdf
+        yol = os.path.join(self.klasor, "sehpa.pdf")
+        test_pdf.pdf_yaz(yol, test_pdf.YAZI)
+        w = pencere.AnaPencere()
+        w.ayar.tozlar.append(pencere.Toz("Metalik Kahve"))
+        d = pencere.PdfAktar(yol, w.ayar.tozlar[0].ad, w.ayar, w)
+        self.assertEqual(d.ad.text(), "400x400x240 SEHPA METALI")
+        self.assertEqual(d.toz.currentText(), "Metalik Kahve")      # renk yazısından toz seçildi
+        self.assertEqual(d.kalinlik.value(), 0.0)                    # belirsiz: atanmadı
+        d.adet.setValue(2)
+        # varsayılan seçenek abkant açınımı: üç ölçüden U biçimi tahmini, kalınlık girilmeden kalem eklenmez
+        self.assertTrue(d._acinim_mi())
+        self.assertEqual([d.abkant.deger()[x] for x in ("k1", "k2", "k3", "W")], [400.0, 500.0, 400.0, 240.0])
+        self.assertFalse(d.tamam.isEnabled())
+        d.abkant.alanlar["t"].setValue(6.0)
+        self.assertTrue(d.tamam.isEnabled())
+        k = d.kalem()
+        self.assertEqual((k.adet, k.toz, k.kaynak["tur"]), (2, "Metalik Kahve", "kalip"))
+        w.kalemler.append(k)
+        w._yenile()
+        self.assertIn("Abkant sac açınımı 1278", w.tablo.item(0, 1).text())
+        self.assertAlmostEqual(kalem_sonucu(k, w.ayar).alan_m2, 0.6318, places=3)
+        # ikinci seçenek: elle alan
+        d.hesap.setCurrentIndex(1)
+        self.assertTrue(d.tamam.isEnabled())
+        d.alan.setValue(0.5)
+        k2 = d.kalem()
+        self.assertEqual(k2.kaynak["tur"], "elle")
+        self.assertIn("500 × 400 × 240", k2.kaynak["pdf"])
+        w.kalemler.append(k2)
+        w._yenile()
+        self.assertIn("PDF taslağı", w.tablo.item(1, 1).text())
+
     def test_ice_aktar_ve_duzenle(self):
         doc = ezdxf.new("R2018")
         doc.header["$INSUNITS"] = 4

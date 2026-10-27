@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Çizimden alan çıkmayan parçalar için kalıplar: boru, kutu profil, konik ayak, dolu çubuk, lama, sac.
+"""Çizimden alan çıkmayan parçalar için kalıplar: boru, kutu profil, konik ayak, dolu çubuk, lama, sac, abkant sac.
 
 Uç durumu (boru ve profiller):
   açık    — uç halkaları boyanır; toz içeriye her uçtan "iç boya derinliği" kadar girer (varsayılan bir çap)
@@ -114,6 +114,33 @@ def _sac(d: Dict) -> float:
     return 2 * a * b + 2 * (a + b) * t  # iki yüz + kesim kenarları
 
 
+def _abkant_degerleri(d: Dict):
+    k = KALIPLAR["Abkant sac (açınım)"]
+    kenar = [x for x in (_d(d, a, k) for a in ("k1", "k2", "k3", "k4", "k5")) if x > 0]
+    return kenar, _d(d, "W", k), _d(d, "t", k), _d(d, "ri", k), _d(d, "K", k), _d(d, "kesik", k), _d(d, "kesik_c", k)
+
+
+def abkant_acinim(d: Dict) -> tuple:
+    """Abkantla bükülmüş sacın düz açınımı (L, W) mm. 90° bükümler, kenarlar DIŞ ölçüdür:
+    L = Σ kenar − büküm × (2 (ri + t) − BA), BA = π/2 (ri + K t); ri = 0 ise kalınlığa eşit sayılır."""
+    kenar, W, t, ri, K, _, _ = _abkant_degerleri({**varsayilanlar("Abkant sac (açınım)"), **d})
+    _dogrula(bool(kenar) and W > 0, "Abkant: en az bir kenar ve genişlik girin.")
+    _dogrula(t > 0, "Abkant: sac kalınlığını girin (kalınlık > 0).")
+    _dogrula(0.0 <= K <= 0.5, "Abkant: K-faktörü 0 ile 0,5 arasında olmalı.")
+    ri = ri if ri > 0 else t
+    ba = math.pi / 2 * (ri + K * t)
+    L = sum(kenar) - (len(kenar) - 1) * (2 * (ri + t) - ba)
+    _dogrula(L > 0, "Abkant: kenarlar büküm payından küçük; ölçüleri kontrol edin.")
+    return L, W
+
+
+def _abkant(d: Dict) -> float:
+    L, W = abkant_acinim(d)
+    _, _, t, _, _, kesik, kesik_c = _abkant_degerleri({**varsayilanlar("Abkant sac (açınım)"), **d})
+    _dogrula(0.0 <= kesik < L * W and kesik_c >= 0, "Abkant: kesik alanı levha alanından küçük olmalı.")
+    return 2 * (L * W - kesik) + (2 * (L + W) + kesik_c) * t  # iki yüz + dış ve kesik kenarları
+
+
 def _dogrula(kosul: bool, mesaj: str):
     if not kosul:
         raise ValueError(mesaj)
@@ -156,6 +183,17 @@ _ekle(Kalip("Sac levha", [
     Olcu("a", "En", 300.0), Olcu("b", "Boy", 200.0), Olcu("t", "Kalınlık", 1.5),
 ], _sac, lambda d: f"Sac {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')} mm, iki yüz + kesim kenarları"))
 
+_ekle(Kalip("Abkant sac (açınım)", [
+    Olcu("k1", "Kenar 1 (dış ölçü)", 400.0, "mm", None, "bükümler arası DIŞ ölçüler, sırayla; kullanılmayan kenar 0"),
+    Olcu("k2", "Kenar 2 (dış ölçü)", 500.0), Olcu("k3", "Kenar 3 (dış ölçü)", 400.0),
+    Olcu("k4", "Kenar 4 (dış ölçü)", 0.0), Olcu("k5", "Kenar 5 (dış ölçü)", 0.0),
+    Olcu("W", "Genişlik (büküm çizgisi boyu)", 240.0), Olcu("t", "Sac kalınlığı", 0.0, "mm", None, "girilmeli"),
+    Olcu("ri", "İç büküm yarıçapı", 0.0, "mm", None, "0: sac kalınlığına eşit sayılır"),
+    Olcu("K", "K-faktörü", 0.4, "", None, "0,33 – 0,5; atölyede yaygın 0,4"),
+    Olcu("kesik", "Kesik / pencere alanı (toplam)", 0.0, "mm²", None, "açınımdaki delik ve pencerelerin toplam alanı"),
+    Olcu("kesik_c", "Kesiklerin çevresi (toplam)", 0.0, "mm", None, "kesik kenarları kalınlık kadar boyanır"),
+], _abkant, lambda d: _abkant_ozet(d)))
+
 
 def _s(d: Dict, k: str) -> str:
     v = d.get(k)
@@ -163,6 +201,16 @@ def _s(d: Dict, k: str) -> str:
         return "?"
     v = float(v)
     return (f"{v:.0f}" if v == int(v) else f"{v:g}").replace(".", ",")
+
+
+def _abkant_ozet(d: Dict) -> str:
+    try:
+        L, W = abkant_acinim(d)
+        kenar = " + ".join(_s(d, x) for x in ("k1", "k2", "k3", "k4", "k5") if float(d.get(x, 0) or 0) > 0)
+        return (f"Abkant sac açınımı {_s({'v': L}, 'v')} × {_s(d, 'W')} mm, t = {_s(d, 't')} ({kenar}; "
+                f"{len(kenar.split(' + ')) - 1} büküm), iki yüz + kenarlar")
+    except ValueError as h:
+        return str(h)
 
 
 def varsayilanlar(ad: str) -> Dict:

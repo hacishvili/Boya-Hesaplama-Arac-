@@ -14,6 +14,7 @@ NumPy (ezdxf kullanır)                    BSD-3-Clause ve alt bileşen lisansla
 fontTools (ezdxf kullanır)                MIT                                      https://github.com/fonttools/fonttools
 pyparsing (ezdxf kullanır)                MIT                                      https://github.com/pyparsing/pyparsing
 typing_extensions (ezdxf kullanır)        PSF-2.0                                  https://github.com/python/typing_extensions
+pypdf (PDF'ten yazı okuma)                BSD-3-Clause                             https://github.com/py-pdf/pypdf
 PyInstaller önyükleyicisi (Windows paketi) GPL-2.0+ (önyükleyici istisnasıyla)     https://pyinstaller.org/
 Microsoft Visual C++ çalışma zamanı       Microsoft dağıtım izni ("Distributable   https://learn.microsoft.com/visualstudio/
 (Python'un vcruntime DLL'leri)            Code")                                   releases/2022/redistribution
@@ -22,7 +23,7 @@ Genel lisans metinleri (ucuncu_taraf_lisanslari/):
   LGPL-3.0.txt, GPL-3.0.txt   Qt / PySide6 / shiboken6 (LGPL-3.0, GPL-3.0'a ek izinler olarak yazıldığından
                               GPL-3.0 metni de verilir)
   PyInstaller.txt             PyInstaller önyükleyicisi
-Bileşen klasörleri (telif satırlı metinler): Python, ezdxf, numpy, fontTools, pyparsing, typing_extensions.
+Bileşen klasörleri (telif satırlı metinler): Python, ezdxf, numpy, fontTools, pyparsing, typing_extensions, pypdf.
 Qt kütüphanelerinin içinde derlenmiş bileşenler (HarfBuzz, PCRE2, md4c ...) ve lisansları:
 https://doc.qt.io/qt-6/licenses-used-in-qt.html
 

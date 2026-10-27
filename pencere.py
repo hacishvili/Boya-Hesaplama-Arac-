@@ -14,12 +14,13 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QKeySequence, QPageLayout, Q
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QScrollArea,
+                               QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
                                QSpinBox, QSplitter, QStyle, QTableWidget, QTableWidgetItem, QToolBar,
                                QVBoxLayout, QWidget)
 
 import dxf_oku
 import kaliplar
+import pdf_oku
 import proje
 import rapor
 import stl_oku
@@ -29,7 +30,8 @@ from hesap import (Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_aciklamasi, kaynak_
 from surum import SURUM
 
 UYGULAMA = "Toz Boya Hesabı"
-DOSYA_SUZGECI = "Çizimler (*.dxf *.dwg *.stl);;DXF (*.dxf);;DWG (*.dwg);;STL (*.stl)"
+DOSYA_SUZGECI = ("Çizimler (*.dxf *.dwg *.stl *.pdf);;DXF (*.dxf);;DWG (*.dwg);;STL (*.stl);;"
+                 "PDF teknik resim (*.pdf)")
 
 
 def _cift(en: float, boy: float, deger: float, basamak: int = 2, adim: float = 1.0, sonek: str = "") -> QDoubleSpinBox:
@@ -482,6 +484,151 @@ class IceAktar(QDialog):
         return out
 
 
+# ---------------------------------------------------------------- PDF taslağı
+
+ABKANT = "Abkant sac (açınım)"
+
+
+class PdfAktar(QDialog):
+    """Teknik resim PDF'inden okunan yazıyla kalem: ad, renk (toz), ölçü, kalınlık. Alan iki yoldan: abkant
+    açınımı (kenar ölçüleri + kalınlık + büküm payı → düz levha) ya da elle alan. Çizgilerden alan okunmaz."""
+
+    def __init__(self, yol: str, varsayilan_toz: str, ayar: Ayarlar, parent=None):
+        super().__init__(parent)
+        self.yol = yol
+        self.ayar = ayar
+        self.sonuc = pdf_oku.oku(yol)
+        s = self.sonuc
+        self.setWindowTitle(f"PDF'ten taslak kalem — {os.path.basename(yol)}")
+        self.resize(560, 520)
+        v = QVBoxLayout(self)
+        form = QFormLayout()
+        self.ad = QLineEdit(s.ad or os.path.splitext(os.path.basename(yol))[0])
+        form.addRow("Parça adı", self.ad)
+        if s.urun:
+            form.addRow("Ürün", QLabel(s.urun))
+        form.addRow("Ölçüler (mm)", QLabel(" × ".join(f"{x:g}" for x in s.olculer) or "çizimde ölçü yazısı yok"))
+        self.renk = QLineEdit(s.renk)
+        form.addRow("Renk", self.renk)
+        self.toz = QComboBox()
+        self.toz.addItems([t.ad for t in ayar.tozlar])
+        self.toz.setCurrentText(self._toz_bul(s.renk) or varsayilan_toz)
+        form.addRow("Toz", self.toz)
+        self.adet = QSpinBox()
+        self.adet.setRange(1, 10_000_000)
+        self.adet.setValue(s.adet or 1)
+        form.addRow("Adet", self.adet)
+        self.hesap = QComboBox()
+        self.hesap.addItems(["Abkant açınımı (düz levha)", "Elle alan"])
+        self.hesap.setToolTip("Abkantla bükülen sac ürünlerde açınım: kenar ölçüleri, kalınlık ve büküm payıyla düz "
+                              "levha alanı hesaplanır")
+        form.addRow("Alan hesabı", self.hesap)
+        # elle alan seçeneği
+        self.kalinlik = QDoubleSpinBox()
+        self.kalinlik.setRange(0.0, 100.0)
+        self.kalinlik.setDecimals(2)
+        self.kalinlik.setSuffix(" mm")
+        self.kalinlik.setSpecialValueText("yazmıyor")
+        self.kalinlik.setValue(s.kalinlik or 0.0)
+        form.addRow("Sac kalınlığı", self.kalinlik)
+        self.alan = QDoubleSpinBox()
+        self.alan.setRange(0.0, 1000.0)
+        self.alan.setDecimals(4)
+        self.alan.setSuffix(" m²")
+        self.alan.setToolTip("Biliyorsanız adet başına boyanacak alanı girin")
+        form.addRow("Boyanacak alan / adet", self.alan)
+        self._form = form
+        v.addLayout(form)
+        # abkant seçeneği: kalıp formu; 3 ölçüden U biçimi tahmin edilir (üst = en büyük, bacaklar = ortanca,
+        # genişlik = en küçük), çizime göre düzeltilir
+        ol = s.olculer
+        oneri = ({"k1": ol[1], "k2": ol[0], "k3": ol[1], "W": ol[2]} if len(ol) == 3 else
+                 {"k1": ol[0], "k2": 0.0, "k3": 0.0, "W": ol[1]} if len(ol) == 2 else {"k1": 0.0, "k2": 0.0, "k3": 0.0})
+        oneri.update(k4=0.0, k5=0.0, t=s.kalinlik or 0.0)
+        self.abkant = KalipFormu(ABKANT, oneri)
+        self.abkant_kutu = QGroupBox("Abkant açınımı")
+        QVBoxLayout(self.abkant_kutu).addWidget(self.abkant)
+        if len(ol) == 3:
+            self.abkant_kutu.setToolTip(f"Ölçülerden tahmin: U biçimi {ol[1]:g} + {ol[0]:g} + {ol[1]:g}, "
+                                        f"genişlik {ol[2]:g}. Çizime göre düzeltin.")
+        v.addWidget(self.abkant_kutu)
+        self.sonuc_etiketi = QLabel()
+        self.sonuc_etiketi.setWordWrap(True)
+        v.addWidget(self.sonuc_etiketi)
+        self.abkant.degisti.connect(self._hesapla)
+        self.hesap.currentIndexChanged.connect(self._hesapla)
+        if s.uyarilar:
+            u = QLabel("\n".join(s.uyarilar))
+            u.setWordWrap(True)
+            u.setStyleSheet("color: #8a5a00;")
+            v.addWidget(u)
+        if s.notlar:
+            v.addWidget(QLabel("Çizimdeki notlar:"))
+            n = QPlainTextEdit("\n".join(s.notlar))
+            n.setReadOnly(True)
+            n.setMaximumHeight(110)
+            v.addWidget(n)
+        v.addStretch(1)
+        dugmeler = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.tamam = dugmeler.button(QDialogButtonBox.Ok)
+        self.tamam.setText("Kalemi ekle")
+        dugmeler.button(QDialogButtonBox.Cancel).setText("Vazgeç")
+        dugmeler.accepted.connect(self.accept)
+        dugmeler.rejected.connect(self.reject)
+        v.addWidget(dugmeler)
+        self._hesapla()
+
+    def _acinim_mi(self) -> bool:
+        return self.hesap.currentIndex() == 0
+
+    def _hesapla(self, *_):
+        ac = self._acinim_mi()
+        self._form.setRowVisible(self.kalinlik, not ac)
+        self._form.setRowVisible(self.alan, not ac)
+        self.abkant_kutu.setVisible(ac)
+        self.sonuc_etiketi.setVisible(ac)
+        self.tamam.setEnabled(True)
+        if not ac:
+            return
+        try:
+            d = self.abkant.deger()
+            L, W = kaliplar.abkant_acinim(d)
+            a = kaliplar.alan(ABKANT, d)
+            self.sonuc_etiketi.setText(f"Açınım: <b>{sayi(L, 1)} × {sayi(W, 1)} mm</b> · boyanacak alan "
+                                       f"<b>{sayi(a / 1e6, 4)} m²</b> / adet")
+        except ValueError as h:
+            self.sonuc_etiketi.setText(f"<span style='color:#a02020'>{h}</span>")
+            self.tamam.setEnabled(False)
+
+    def _toz_bul(self, renk: str) -> str:
+        """Renk yazısı bir tozun adında geçiyorsa (ya da tersi) o toz; yoksa ''."""
+        r = pdf_oku._n(renk)
+        if not r:
+            return ""
+        for t in self.ayar.tozlar:
+            n = pdf_oku._n(t.ad)
+            if r in n or (len(n) >= 3 and n in r):
+                return t.ad
+        return ""
+
+    def kalem(self) -> Kalem:
+        s = self.sonuc
+        ozet_ = [f"ölçü {' × '.join(f'{x:g}' for x in s.olculer)} mm"] if s.olculer else []
+        if self.renk.text().strip():
+            ozet_.append(f"renk {self.renk.text().strip()}")
+        if self.kalinlik.value() > 0:
+            ozet_.append(f"sac {self.kalinlik.value():g} mm")
+        if s.urun:
+            ozet_.append(f"ürün {s.urun}")
+        if self._acinim_mi():
+            kaynak = {"tur": "kalip", "kalip": ABKANT, "deger": self.abkant.deger()}
+        else:
+            kaynak = {"tur": "elle", "alan_m2": self.alan.value(), "pdf": "; ".join(ozet_)}
+        k = Kalem(self.ad.text().strip() or "PDF parça", kaynak, adet=self.adet.value(), toz=self.toz.currentText(),
+                  dosya=self.yol)
+        return k
+
+
 # ---------------------------------------------------------------- kalıp formu
 
 class KalipFormu(QWidget):
@@ -885,7 +1032,7 @@ class AnaPencere(QMainWindow):
                 arac.addAction(a)
             return a
 
-        eylem("Çizim ekle (DXF / DWG / STL)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
+        eylem("Çizim ekle (DXF / DWG / STL / PDF)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
         eylem("Kalıptan ekle", self.kalip_ekle, QStyle.SP_FileDialogDetailedView, "Ctrl+K", menu_kalem)
         eylem("Elle alan", self.elle_ekle, QStyle.SP_FileDialogNewFolder, None, menu_kalem)
         eylem("Açınım (DXF)", self.acinim, None, None, menu_kalem)
@@ -1268,14 +1415,17 @@ class AnaPencere(QMainWindow):
             try:
                 QApplication.setOverrideCursor(Qt.WaitCursor)
                 try:
-                    d = IceAktar(yol, self._varsayilan_toz(), self, self.ayar.oda_yolu)
+                    if yol.lower().endswith(".pdf"):
+                        d = PdfAktar(yol, self._varsayilan_toz(), self.ayar, self)
+                    else:
+                        d = IceAktar(yol, self._varsayilan_toz(), self, self.ayar.oda_yolu)
                 finally:
                     QApplication.restoreOverrideCursor()
             except Exception as h:  # bozuk / desteklenmeyen dosya: ezdxf çeşitli hatalar atar
                 QMessageBox.warning(self, UYGULAMA, f"{os.path.basename(yol)} açılamadı:\n{h}")
                 continue
             if d.exec() == QDialog.Accepted:
-                yeni = d.kalemler()
+                yeni = [d.kalem()] if isinstance(d, PdfAktar) else d.kalemler()
                 if yeni:
                     self.kalemler.extend(yeni)
                     self._degisti()
@@ -1480,7 +1630,7 @@ class AnaPencere(QMainWindow):
     def dropEvent(self, e):
         yollar = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         projeler = [y for y in yollar if y.lower().endswith(".tozboya")]
-        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".dwg", ".stl"))]
+        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".dwg", ".stl", ".pdf"))]
         if projeler:
             self.ac(yol=projeler[0])
         if cizimler:

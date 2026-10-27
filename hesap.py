@@ -140,7 +140,8 @@ def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
     if tur == "kalip":
         return kaliplar.aciklama(k["kalip"], k.get("deger", {}))
     if tur == "elle":
-        return "elle girilen alan"
+        pdf = k.get("pdf")
+        return "elle girilen alan" + (f" (PDF taslağı: {pdf})" if pdf else "")
     return ""
 
 

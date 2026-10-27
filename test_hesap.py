@@ -194,5 +194,37 @@ class Dosyalar(unittest.TestCase):
             proje.ac(yol)
 
 
+class Abkant(unittest.TestCase):
+    AD = "Abkant sac (açınım)"
+
+    def test_u_profil_acinimi_ve_alani(self):
+        import kaliplar
+        d = {"k1": 400, "k2": 500, "k3": 400, "W": 240, "t": 6, "ri": 6, "K": 0.4}
+        # BA = π/2 (6 + 2,4) = 13,195; BD = 2 (6 + 6) − BA = 10,805; L = 1300 − 2 BD
+        L, W = kaliplar.abkant_acinim(d)
+        self.assertAlmostEqual(L, 1300 - 2 * (24 - math.pi / 2 * 8.4), places=6)
+        self.assertEqual(W, 240)
+        self.assertAlmostEqual(kaliplar.alan(self.AD, d), 2 * L * W + 2 * (L + W) * 6, places=6)
+        # ri = 0: kalınlığa eşit sayılır
+        self.assertAlmostEqual(kaliplar.abkant_acinim({**d, "ri": 0})[0], L, places=9)
+
+    def test_kesik_alan_ve_kenarlari(self):
+        import kaliplar
+        d = {"k1": 400, "k2": 500, "k3": 400, "W": 240, "t": 6}
+        L, W = kaliplar.abkant_acinim(d)
+        tam = kaliplar.alan(self.AD, d)
+        kes = kaliplar.alan(self.AD, {**d, "kesik": 2 * 60000, "kesik_c": 2 * 1000})
+        self.assertAlmostEqual(kes, tam - 2 * 2 * 60000 + 2 * 1000 * 6, places=6)
+
+    def test_gecersiz_girdiler(self):
+        import kaliplar
+        with self.assertRaises(ValueError):
+            kaliplar.alan(self.AD, {"k1": 400, "W": 240})            # kalınlık yok (varsayılan 0)
+        with self.assertRaises(ValueError):
+            kaliplar.alan(self.AD, {"k1": 5, "k2": 5, "k3": 0, "W": 100, "t": 6})   # kenarlar büküm payından küçük
+        with self.assertRaises(ValueError):
+            kaliplar.alan(self.AD, {"k1": 100, "k2": 0, "k3": 0, "W": 10, "t": 1, "kesik": 1e6})
+
+
 if __name__ == "__main__":
     unittest.main()

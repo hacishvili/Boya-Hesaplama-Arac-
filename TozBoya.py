@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Toz Boya Hesabı — başlatıcı.
 
-  TozBoya.py [proje.tozboya | çizim.dxf | çizim.dwg | çizim.stl ...]
+  TozBoya.py [proje.tozboya | çizim.dxf | çizim.dwg | çizim.stl | resim.pdf ...]
   TozBoya.py --self-test     paketin kendi denemesi: örnek DXF'ler üretilir, okunur, hesaplanır, PDF yazılır
 """
 import os
@@ -67,6 +67,11 @@ def kendini_dene() -> int:
     pencere.pdf_yaz(pdf, [k], a, "deneme")
     if not os.path.exists(pdf) or os.path.getsize(pdf) < 1000:
         hatalar.append("PDF rapor")
+    try:  # PDF teknik resimden yazı okuma (pypdf) pakette olmalı
+        import pdf_oku
+        pdf_oku.oku(pdf)
+    except Exception:
+        hatalar.append("PDF okuma (pypdf)")
     rapor.csv_yaz(os.path.join(klasor, "rapor.csv"), [k], a)
     w = pencere.AnaPencere()
     w.kalemler.append(k)
@@ -99,7 +104,7 @@ def main() -> int:
     projeler = [d for d in dosyalar if d.lower().endswith(".tozboya")]
     if projeler:
         w.ac(yol=projeler[0])
-    cizimler = [d for d in dosyalar if d.lower().endswith((".dxf", ".dwg", ".stl"))]
+    cizimler = [d for d in dosyalar if d.lower().endswith((".dxf", ".dwg", ".stl", ".pdf"))]
     if cizimler:
         w.dosya_ekle(yollar=cizimler)
     return app.exec()
