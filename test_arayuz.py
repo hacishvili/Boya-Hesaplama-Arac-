@@ -94,6 +94,22 @@ class Arayuz(unittest.TestCase):
         d.topla.setChecked(False)
         self.assertEqual(len(d.kalemler()), 5)
 
+    def test_hata_raporu(self):
+        import test_acis as T
+        g = T.Govde()
+        T.Acis.kare_yuz(None, g, T.Acis.spline(None, g, 10.0), 5.0)  # kırpılmış spline yüz: hesaplanmaz
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        doc.modelspace().add_3dsolid().sat = g.satirlar()
+        yol = os.path.join(self.klasor, "ayak.dxf")
+        doc.saveas(yol)
+        d = pencere.IceAktar(yol, "Polyester")
+        self.assertFalse(d.rapor_dugmesi.isHidden())
+        self.assertIn("exact_spl_sur", d.tablo.item(0, 5).toolTip())
+        metin = d.hata_raporu_metni()
+        self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", metin)
+        self.assertIn("{ exact_spl_sur 22600 full nubs 1 1", metin)
+
     def test_kalip_penceresi(self):
         k = pencere.KalipPenceresi("Polyester")
         k.secim.setCurrentText("Sac levha")

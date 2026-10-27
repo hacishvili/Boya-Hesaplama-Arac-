@@ -257,7 +257,7 @@ class Acis(unittest.TestCase):
         g = Govde()
         self.kare_yuz(g, self.spline(g, 10.0), 5.0)  # döngü yüzeyin yalnız bir kısmını alıyor
         s = dxf_kati(self.klasor, [g.satirlar()])
-        self.assertIn("kırpılmış", s.govdeler[0].hata)
+        self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", s.govdeler[0].hata)
         self.assertEqual(s.govdeler[0].alan, 0.0)
 
     def test_donusum_ve_olcek(self):

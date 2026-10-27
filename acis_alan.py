@@ -364,11 +364,8 @@ def bs3_egri(k: Kayit) -> Bs3Egri:
     return Bs3Egri(derece, dug, P, w)
 
 
-def bs3_yuzey(k: Kayit) -> Bs3Yuzey:
-    o = _alt_tur(k.oge)
-    if not o or o[0] != "exact_spl_sur":
-        raise AcisHatasi(f"desteklenmeyen spline yüzey türü ({o[0] if o else '?'})")
-    i, rasyonel = _bs3_basi(o)
+def _bs3_yuzey_oku(o: list, i: int, rasyonel: bool) -> Bs3Yuzey:
+    """o[i]: 'nubs' / 'nurbs' (ya da SAB enum); ardından derece u, derece v, biçimler, düğüm sayıları ..."""
     pu, pv = int(o[i + 1]), int(o[i + 2])
     j = i + 3
     while j < len(o) and not isinstance(o[j], float):  # biçimler ve tekillikler
@@ -385,6 +382,34 @@ def bs3_yuzey(k: Kayit) -> Bs3Yuzey:
     P = [tuple(kalan[adim * m:adim * m + 3]) for m in range(nu * nv)]
     w = [kalan[adim * m + 3] for m in range(nu * nv)] if rasyonel else None
     return Bs3Yuzey(pu, pv, du, dv, nu, nv, P, w)
+
+
+def bs3_yuzeyler(k: Kayit) -> Tuple[str, List[Bs3Yuzey]]:
+    """Spline yüzey kaydındaki okunabilen bütün B-spline yüzeyler (alt tür adıyla). exact_spl_sur'da tek yüzey
+    vardır; loft / süpürme gibi yöntem yüzeylerinde tanım eğrilerinin yanında yaklaşık yüzey de saklanır: hangisinin
+    yüzün kendisi olduğuna sınır denetimi karar verir (yuz_alani)."""
+    o = _alt_tur(k.oge)
+    ad = str(o[0]) if o else "?"
+    adaylar: List[Bs3Yuzey] = []
+    yerler = [(i, x == "nurbs") for i, x in enumerate(o) if x in ("nubs", "nurbs")]
+    if not yerler:  # SAB: rasyonellik sözcük değil sayı
+        try:
+            yerler = [_bs3_basi(o)]
+        except AcisHatasi:
+            yerler = []
+    for i, rasyonel in yerler:
+        try:
+            if isinstance(o[i + 1], float) and isinstance(o[i + 2], float):
+                adaylar.append(_bs3_yuzey_oku(o, i, rasyonel))
+        except (AcisHatasi, IndexError, ValueError, TypeError):
+            continue
+    if not adaylar:
+        raise AcisHatasi(f"spline yüzey verisi okunamadı ({ad})")
+    return ad, adaylar
+
+
+def bs3_yuzey(k: Kayit) -> Bs3Yuzey:
+    return bs3_yuzeyler(k)[1][0]
 
 
 # ---------------------------------------------------------------- eğriler
@@ -567,7 +592,7 @@ class Yuzey:
             self.e2 = _dis(self.a, self.e1)
         elif k.ad == "spline-surface":
             self.tur = "spline"
-            self.b = bs3_yuzey(k)
+            self.alt_tur, self.adaylar = bs3_yuzeyler(k)
         else:
             raise AcisHatasi(f"desteklenmeyen yüzey ({k.ad})")
 
@@ -677,8 +702,13 @@ def yuz_alani(face: Kayit, donus, tol: float, onbellek: dict) -> Tuple[float, Li
 
     if yuzey.tur == "spline":
         pts = [_dongu(l, 4, tol, onbellek) for l in donguler]
-        _spline_tam_mi(yuzey.b, pts, tol)
-        return yuzey.b.alan(lambda q: q), [[donus(q) for q in d] for d in pts]
+        for b in yuzey.adaylar:
+            try:
+                _spline_tam_mi(b, pts, tol)
+            except AcisHatasi:
+                continue
+            return b.alan(lambda q: q), [[donus(q) for q in d] for d in pts]
+        raise AcisHatasi(f"kırpılmış ya da tanınmayan spline yüz ({yuzey.alt_tur})")
 
     if yuzey.tur == "koni" and yuzey.egim != 0.0:
         yuzey.olcum = []
@@ -788,6 +818,7 @@ class Govde:
         self.hata = ""
         self.yuz_sayisi = 0
         self.kapali = True
+        self.tani: List[str] = []           # hesaplanamayan yüzlerin ham yüzey verisi (hata raporu için)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -848,6 +879,8 @@ def govdeler(e) -> List[Govde]:
                         g.donguler.extend(d)
                     except AcisHatasi as h:
                         turler[f"{ad}: {h}"] = turler.get(f"{ad}: {h}", 0) + 1
+                        if len(g.tani) < 3 and yz is not None:
+                            g.tani.append(f"{ad}: {h}\n{_ham_metin(yz)}")
                 g.kapali = _kapali_mi(yuzler)
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
@@ -862,6 +895,16 @@ def govdeler(e) -> List[Govde]:
         g.hata = "ACIS verisinde katı gövde yok"
         out.append(g)
     return out
+
+
+def _ham_metin(k: Kayit, sinir: int = 6000) -> str:
+    """Kaydın öğeleri metin olarak (işaretçiler '$'), hata raporu için."""
+    parca = []
+    for x in k.oge:
+        parca.append("$" if isinstance(x, Kayit) else "$-1" if x is None else
+                     f"{x:.10g}" if isinstance(x, float) else str(x))
+    m = f"{k.ad} " + " ".join(parca)
+    return m if len(m) <= sinir else m[:sinir] + " …"
 
 
 def _boyut(yuzler: List[Kayit]) -> float:

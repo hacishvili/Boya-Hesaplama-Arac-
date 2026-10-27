@@ -221,6 +221,9 @@ class IceAktar(QDialog):
         self.uyari.setStyleSheet("color: #8a5a00;")
         ana.addWidget(self.uyari)
         dugmeler = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.rapor_dugmesi = dugmeler.addButton("Hata ayrıntısını kaydet…", QDialogButtonBox.ActionRole)
+        self.rapor_dugmesi.setToolTip("Hesaplanamayan gövdelerin nedeni ve ham verisi bir metin dosyasına yazılır")
+        self.rapor_dugmesi.clicked.connect(self._hata_raporu)
         dugmeler.button(QDialogButtonBox.Ok).setText("Seçilenleri ekle")
         dugmeler.button(QDialogButtonBox.Cancel).setText("Vazgeç")
         dugmeler.accepted.connect(self.accept)
@@ -362,12 +365,34 @@ class IceAktar(QDialog):
                     h.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if hata:
                     h.setForeground(QBrush(QColor(170, 40, 40)))
+                    h.setToolTip(hata)
                 self.tablo.setItem(r, c, h)
         self.tablo.setColumnHidden(3, not any(t == "2d" for t, *_ in self.ogeler))
+        self.rapor_dugmesi.setVisible(any(h for *_, h in self.ogeler))
         self.tablo.resizeColumnsToContents()
         if self.ogeler and not self.tablo.selectedItems():
             self.tablo.selectRow(0)
         self._sec()
+
+    def hata_raporu_metni(self) -> str:
+        from surum import SURUM
+        satir = [f"Toz Boya Hesabı {SURUM} — hata raporu", f"Dosya: {os.path.basename(self.yol)}", ""]
+        govdeler = {g.ad: g for g in (self.sonuc.govdeler if self.sonuc else [])}
+        for tur, geo, kaynak, ad, hata in self.ogeler:
+            if not hata:
+                continue
+            satir += [f"== {ad}", hata]
+            g = govdeler.get(ad.split(" – ")[-1]) if " – " in ad else next(iter(govdeler.values()), None)
+            if g is not None and g.tani:
+                satir.append(g.tani)
+            satir.append("")
+        return "\n".join(satir)
+
+    def _hata_raporu(self):
+        yol, _ = QFileDialog.getSaveFileName(self, "Hata ayrıntısı", self.dosya_adi + "_hata.txt", "Metin (*.txt)")
+        if yol:
+            with open(yol, "w", encoding="utf-8") as f:
+                f.write(self.hata_raporu_metni())
 
     def _sec(self):
         r = self.tablo.currentRow()
