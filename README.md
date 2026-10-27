@@ -5,6 +5,19 @@ DXF, DWG ya da STL çizimden **boyanacak alanı**, bu alandan **toz sarfiyatın�
 Sipariş listesi olarak çalışır: birden çok parça, adet ve toz/renk girilir. Toplamlar toz bazında çıkar,
 böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV) ve PDF olarak alınır.
 
+## İndirme ve güncelleme
+
+Python gerektirmeyen Windows paketi deponun **Releases** sayfasında:
+https://github.com/hacishvili/Boya-Hesaplama-Arac-/releases/latest. `TozBoyaHesap_<sürüm>.zip` indirilip
+yazılabilir bir klasöre (Belgeler, Masaüstü; Program Files değil) açılır, `TozBoyaHesap.exe` çalıştırılır.
+
+Program açılışta GitHub'da yeni sürüm olup olmadığına bakar (Yardım → Güncellemeleri denetle; Ayarlar'dan
+kapatılabilir). Yeni sürüm varsa sorar, indirir, SHA-256 özetini doğrular, kendini kapatıp yeni dosyaları kendi
+klasörünün üstüne kopyalar ve yeniden açılır. Ayarlar ve projeler etkilenmez.
+
+Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleştirmek yeter; GitHub Actions testleri
+çalıştırır, paketi derler ve `v<sürüm>` olarak Releases'e koyar. Numara artmadıkça yeni yayın çıkmaz.
+
 ## Kurulum (kaynak koddan)
 
 1. Python 3.12 veya üstü, 64 bit (python.org; kurarken "Add python.exe to PATH" işaretli olmalı).
@@ -13,8 +26,7 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
 4. Programı açmak için: `CALISTIR.cmd` (ya da DXF/STL dosyalarını `CALISTIR.cmd`'nin üstüne sürükleyin).
 
 **Python gerektirmeyen paket:** `PAKETLE.cmd` çalıştırılınca `dist/TozBoyaHesap/TozBoyaHesap.exe` ve
-`dist/TozBoyaHesap_<sürüm>.zip` oluşur. GitHub Actions her gönderide testleri çalıştırır ve paketi de üretir
-(Actions → ilgili çalıştırma → Artifacts → `TozBoyaHesap-windows`).
+`dist/TozBoyaHesap_<sürüm>.zip` oluşur.
 
 ## Kullanım
 
@@ -130,6 +142,7 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 |---|---|
 | `geometri.py` | kontur alanı / çevresi, iç içe yerleşim, çizgi zincirleme, 3D ağ alanı ve gövdeler |
 | `dxf_oku.py` | DXF / DWG: birim, katman, kesikli çizgi, bloklar, 2D konturlar, 3D ağlar, ACIS katılar |
+| `guncelleme.py` | GitHub Releases'ten sürüm denetimi, indirme, özet doğrulama, kendini güncelleme |
 | `acinim.py` | konik / silindirik sac açınımı ve DXF'i |
 | `profil.py` | profil katılarda dış / iç / uç yüzeylerin tanınması, iç yüzeyin uçlardan boyanan kısmı |
 | `acis_alan.py` | ACIS (SAT / SAB) katı gövdelerin yüzey alanı: düzlem, silindir, koni, küre, torus, spline |

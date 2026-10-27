@@ -699,6 +699,9 @@ class AyarPenceresi(QDialog):
         h.addWidget(self.oda, 1)
         h.addWidget(gozat)
         f.addRow("ODA File Converter", h)
+        self.guncelleme = QCheckBox("Açılışta yeni sürümü denetle (GitHub)")
+        self.guncelleme.setChecked(ayar.guncelleme)
+        f.addRow("Güncelleme", self.guncelleme)
         v.addWidget(QLabel("Tozlar (sarfiyat atölyeden; yoğunluk ve kalınlık teknik föyden, yalnız teorik yöntemde):"))
         self.tablo = QTableWidget(0, 6)
         self.tablo.setHorizontalHeaderLabels(["Ad", "Sarfiyat (m²/kg)", "Fiyat (/kg)", "Yoğunluk (g/cm³)",
@@ -776,7 +779,8 @@ class AyarPenceresi(QDialog):
     def ayar(self) -> Ayarlar:
         a = Ayarlar(yontem="teorik" if self.yontem.currentIndex() == 1 else "pratik",
                     verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
-                    para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(), tozlar=[])
+                    para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(),
+                    guncelleme=self.guncelleme.isChecked(), tozlar=[])
         for r in range(self.tablo.rowCount()):
             w = lambda c: self.tablo.cellWidget(r, c).value()
             a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), yogunluk=w(3), fiyat=w(2), kalinlik_um=w(4),
@@ -791,6 +795,8 @@ SUTUNLAR = ["Parça", "Açıklama", "Adet", "Alan / adet (m²)", "Toz", "Kalınl
 
 
 class AnaPencere(QMainWindow):
+    _surum_geldi = Signal(object, bool)  # (guncelleme.Surum ya da None, sessiz)
+
     def __init__(self):
         super().__init__()
         self.ayar = proje.ayarlari_oku()
@@ -836,6 +842,7 @@ class AnaPencere(QMainWindow):
         bolme.setSizes([880, 400])
         self._ayrinti_bos()
         self._yenile()
+        self._surum_geldi.connect(self._surum_sonucu)
 
     # -- eylemler
     def _eylemler(self):
@@ -879,6 +886,8 @@ class AnaPencere(QMainWindow):
         eylem("Çıkış", self.close, None, QKeySequence.Quit, menu_dosya, aracta=False)
         arac.addSeparator()
         eylem("Ayarlar ve tozlar", self.ayarlar, QStyle.SP_FileDialogInfoView, None, menu_dosya)
+        eylem("Güncellemeleri denetle", lambda: self.guncelleme_denetle(sessiz=False), None, None, menu_yardim,
+              aracta=False)
         eylem("Hakkında", self.hakkinda, None, None, menu_yardim, aracta=False)
 
     # -- başlık / durum
@@ -1342,6 +1351,65 @@ class AnaPencere(QMainWindow):
                 QMessageBox.warning(self, UYGULAMA, f"Ayarlar saklanamadı:\n{h}")
         self._degisti()
         self._yenile(self._secili())
+
+    # -- güncelleme (GitHub Releases)
+    def guncelleme_denetle(self, sessiz: bool = True):
+        """Son sürümü arka planda sorar; sonuç _surum_sonucu'na gelir."""
+        import threading
+        import guncelleme
+        threading.Thread(target=lambda: self._surum_geldi.emit(guncelleme.son_surum(), sessiz), daemon=True).start()
+
+    def _surum_sonucu(self, s, sessiz: bool):
+        import guncelleme
+        if s is None:
+            if not sessiz:
+                QMessageBox.information(self, UYGULAMA, "Güncelleme bilgisi alınamadı (internet bağlantısı yok ya da "
+                                        f"henüz yayımlanmış sürüm yok).\n{guncelleme.SAYFA}")
+            return
+        if not guncelleme.yeni_mi(s.surum, SURUM):
+            if not sessiz:
+                QMessageBox.information(self, UYGULAMA, f"Program güncel ({SURUM}).")
+            return
+        notlar = s.notlar.strip()[:1500]
+        c = QMessageBox.question(self, UYGULAMA, f"Yeni sürüm var: {s.surum} (kullandığınız {SURUM}).\n\n"
+                                 + (notlar + "\n\n" if notlar else "") + "Şimdi indirilip kurulsun mu? Program "
+                                 "kapanıp yeni sürümle yeniden açılır.")
+        if c == QMessageBox.Yes:
+            self._guncellemeyi_kur(s)
+
+    def _guncellemeyi_kur(self, s):
+        import tempfile
+        import guncelleme
+        from PySide6.QtWidgets import QProgressDialog
+        if not self._kaydedilsin_mi():
+            return
+        ilerleme = QProgressDialog("Yeni sürüm indiriliyor…", "Vazgeç", 0, 100, self)
+        ilerleme.setWindowModality(Qt.WindowModal)
+        ilerleme.setMinimumDuration(0)
+
+        def adim(alinan, toplam):
+            if toplam:
+                ilerleme.setValue(int(100 * alinan / toplam))
+            QApplication.processEvents()
+            return not ilerleme.wasCanceled()
+        klasor = tempfile.mkdtemp(prefix="TozBoyaIndir_")
+        zip_yolu = os.path.join(klasor, f"TozBoyaHesap_{s.surum}.zip")
+        ozet_yolu = zip_yolu + ".sha256"
+        try:
+            guncelleme.indir(s.sha_url, ozet_yolu)
+            guncelleme.indir(s.zip_url, zip_yolu, adim)
+            with open(ozet_yolu, encoding="utf-8") as f:
+                if not guncelleme.ozet_dogru(zip_yolu, f.read()):
+                    raise OSError("İndirilen dosyanın SHA-256 özeti tutmuyor; dosya bozuk ya da değiştirilmiş.")
+            ilerleme.close()
+            guncelleme.kur(zip_yolu)
+        except OSError as h:
+            ilerleme.close()
+            QMessageBox.warning(self, UYGULAMA, f"Güncelleme yapılamadı:\n{h}\n\nElle indirmek için: "
+                                f"{guncelleme.SAYFA}")
+            return
+        self.degisti = False
+        QApplication.quit()
 
     def hakkinda(self):
         QMessageBox.about(self, UYGULAMA,

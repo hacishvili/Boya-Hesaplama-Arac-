@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write  # main'de yeni sürümü Releases'e yayımlamak için
+
 jobs:
   test-ve-paket:
     runs-on: windows-latest
@@ -38,3 +41,20 @@ jobs:
         with:
           name: TozBoyaHesap-windows
           path: dist/TozBoyaHesap_*.zip
+      # main'e yeni sürüm (surum.py) gelince Releases'e: program buradan kendini günceller (guncelleme.py)
+      - name: Sürümü yayımla
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SURUM=$(python -c "from surum import SURUM; print(SURUM)")
+          if gh release view "v$SURUM" > /dev/null 2>&1; then
+            echo "v$SURUM zaten yayımlı; sürüm numarası artmadıkça yeni yayın yapılmaz."
+            exit 0
+          fi
+          cd dist
+          sha256sum "TozBoyaHesap_$SURUM.zip" > "TozBoyaHesap_$SURUM.zip.sha256"
+          git log -1 --pretty=%B > notlar.txt
+          gh release create "v$SURUM" "TozBoyaHesap_$SURUM.zip" "TozBoyaHesap_$SURUM.zip.sha256" \
+            --target "$GITHUB_SHA" --title "Toz Boya Hesabı $SURUM" --notes-file notlar.txt
