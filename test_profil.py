@@ -111,6 +111,38 @@ class Profil(unittest.TestCase):
         self.assertAlmostEqual(p.uc, 2 * math.pi * (R * R - r * r), places=4)
         self.assertAlmostEqual(p.bosluk, 2 * r, delta=0.01)
 
+    def test_sac_kalinligi_modelden(self):
+        from ezdxf.render import forms
+        g = self.oku(forms.cube().scale(100, 60, 2))
+        self.assertIsNone(g.profil)
+        self.assertAlmostEqual(g.sac.kalinlik, 2.0, places=9)
+        self.assertAlmostEqual(g.sac.yuz, 2 * 6000, places=6)
+        self.assertAlmostEqual(g.sac.kenar, 2 * 160 * 2, places=6)
+        self.assertIsNone(self.oku(forms.cube().scale(50, 50, 50)).sac)  # blok: sac değil
+
+    def test_sac_bukum_yuzleri(self):
+        # 90° bükümlü sac kesitinin eş eksenli iki silindiri (r = 3 ve 5, t = 2) yüz sayılır, delik duvarı kenar
+        Y = profil.YuzBilgi
+        kare = lambda z: [[(0, 0, z), (10, 0, z), (10, 10, z), (0, 10, z)]]
+        yuzler = [Y(100.0, kare(0), "duzlem", normal=(0, 0, 1)), Y(100.0, kare(2), "duzlem", normal=(0, 0, -1)),
+                  Y(30.0, kare(0), "koni", eksen=(1, 0, 0), merkez=(0, 0, 9), r0=3.0),
+                  Y(50.0, kare(0), "koni", eksen=(-1, 0, 0), merkez=(5, 0, 9), r0=5.0),
+                  Y(8.0, kare(0), "koni", eksen=(0, 0, 1), merkez=(5, 5, 0), r0=1.0),
+                  Y(20.0, kare(0), "duzlem", normal=(1, 0, 0))]
+        s = profil.sac_coz(yuzler)
+        self.assertAlmostEqual(s.kalinlik, 2.0)
+        self.assertAlmostEqual(s.yuz, 280.0)
+        self.assertAlmostEqual(s.kenar, 28.0)
+
+    def test_acik_yuzey_iki_yuz(self):
+        from geometri import Ag
+        tek = Ag([[(0, 0, 0), (100, 0, 0), (100, 50, 0), (0, 50, 0)]])
+        self.assertTrue(tek.sac_yuzeyi_mi())
+        from test_geometri import kup
+        delikli = Ag(kup(0, 0, 0, 100)[:5] + [[(0, 0, 100), (100, 0, 100), (100, 100, 100)]])  # küçük açıklık
+        self.assertFalse(delikli.sac_yuzeyi_mi())
+        self.assertFalse(Ag(kup(0, 0, 0, 10)).sac_yuzeyi_mi())
+
     def test_hesap_secenekleri(self):
         pr = {"boy": 300.0, "kesit": [30, 30], "dis": 36000.0, "uc": 448.0, "ic": [[31200.0, 300.0]], "bosluk": 26.0}
         k = {"tur": "3d", "alan": 67648.0, "profil": pr, "ic_boya": "uçlardan", "ic_derinlik": 30.0, "uc_boya": True}

@@ -178,22 +178,22 @@ class IceAktar(QDialog):
         self.kalinlik.setToolTip("Bütün 2D parçalara uygulanır; parçaların kalınlığı tabloda ayrı ayrı da "
                                  "değiştirilebilir. Kenar alanı = çevre × kalınlık")
         self.kalinliklar: Dict[tuple, float] = {}  # parça anahtarı → sac kalınlığı (yeniden okumada korunur)
-        self.iki_yuz = QComboBox()
-        self.iki_yuz.addItems(["İki yüz", "Tek yüz"])
-        self.kenar = QCheckBox("Kesim kenarları boyanır")
-        self.kenar.setChecked(True)
         self.kesikli = QCheckBox("Kesikli çizgileri de al (eksen, gizli, büküm)")
         self.topla = QCheckBox("Aynı parçaları tek satırda topla (adet olarak)")
         self.topla.setChecked(True)
         self.topla.setToolTip("Alanı, ölçüleri (ve 2D'de kalınlığı) aynı olan parçalar tek kalem olur; adet kopya sayısıdır")
         if not self.stl:
-            form.addRow("Sac kalınlığı (tümü)", self.kalinlik)
-            h = QHBoxLayout()
-            h.addWidget(self.iki_yuz)
-            h.addWidget(self.kenar)
-            h.addStretch(1)
-            form.addRow("Boyanan (2D)", h)
+            self.kalinlik_notu = QLabel()
+            self._kal_satir = QWidget()
+            h = QHBoxLayout(self._kal_satir)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.addWidget(self.kalinlik)
+            h.addWidget(self.kalinlik_notu, 1)
+            self._kal_bilgi = QLabel("Saclarda iki yüz ve kesim kenarları (çevre × kalınlık) boyanır.")
+            form.addRow("Sac kalınlığı (2D, tümü)", self._kal_satir)
+            form.addRow("", self._kal_bilgi)
             form.addRow("", self.kesikli)
+        self._form = form
         form.addRow("", self.topla)
         self.katmanlar = QListWidget()
         self.katmanlar.setMaximumHeight(130)
@@ -230,13 +230,21 @@ class IceAktar(QDialog):
         dugmeler.rejected.connect(self.reject)
         ana.addWidget(dugmeler)
 
+        self.katman_kalinlik: Dict[str, float] = {}
+        if not self.stl:
+            t, kaynak, self.katman_kalinlik = dxf_oku.kalinlik_ipucu(self.doc, yol)
+            if t is not None:
+                self.kalinlik.setValue(t)
+                self.kalinlik_notu.setText(f"{kaynak} okundu")
+            elif self.katman_kalinlik:
+                self.kalinlik_notu.setText("katman adlarındaki kalınlıklar o katmanın parçalarına uygulandı")
+            else:
+                self.kalinlik_notu.setText("çizimde yazmıyor: girin (parça parça da girilebilir)")
         self._katman_ilk = True
         self.birim.currentIndexChanged.connect(self.cozumle)
         self.kesikli.toggled.connect(self.cozumle)
         self.katmanlar.itemChanged.connect(self.cozumle)
         self.kalinlik.valueChanged.connect(self._kalinlik_tumu)
-        self.iki_yuz.currentIndexChanged.connect(self._alanlari_yenile)
-        self.kenar.toggled.connect(self._alanlari_yenile)
         self.cozumle()
 
     # -- çözümleme
@@ -256,8 +264,8 @@ class IceAktar(QDialog):
                 uyarilar.append(u)
             for i, g in enumerate(govdeler):
                 ad = self.dosya_adi + (f" – gövde {i + 1}" if len(govdeler) > 1 else "")
-                self.ogeler.append(("3d", g, {"tur": "3d", "alan": g.alan, "kapali": g.kapali_mi(), "katsayi": 1.0,
-                                              "varlik": "STL"}, ad, ""))
+                self.ogeler.append(("3d", g, {"tur": "3d", "alan": g.alan, "kapali": g.kapali_mi(),
+                                              "katsayi": 2.0 if g.sac_yuzeyi_mi() else 1.0, "varlik": "STL"}, ad, ""))
         else:
             haric = [self.katmanlar.item(i).text() for i in range(self.katmanlar.count())
                      if self.katmanlar.item(i).checkState() != Qt.Checked]
@@ -275,8 +283,11 @@ class IceAktar(QDialog):
                 self.katmanlar.blockSignals(False)
             for i, g in enumerate(s.govdeler):
                 ad = self.dosya_adi + (f" – {g.ad}" if len(s.govdeler) > 1 else "")
-                kaynak = None if g.hata else {"tur": "3d", "alan": g.alan, "kapali": g.kapali, "katsayi": 1.0,
+                kaynak = None if g.hata else {"tur": "3d", "alan": g.alan, "kapali": g.kapali,
+                                              "katsayi": 2.0 if g.ag is not None and g.ag.sac_yuzeyi_mi() else 1.0,
                                               "varlik": g.tur}
+                if kaynak and g.sac is not None:
+                    kaynak["sac"] = g.sac.sozluk()
                 if kaynak and g.profil is not None:
                     # profil: dış, iç ve uç yüzeyler ayrı; iç yüzey uçlardan boşluk ölçüsü kadar boyanır
                     kaynak.update(profil=g.profil.sozluk(), ic_boya="uçlardan",
@@ -306,8 +317,10 @@ class IceAktar(QDialog):
     def _kaynak2d(self, p: Parca2D) -> Dict:
         w, h = p.olcu
         return {"tur": "2d", "yuz_alani": p.yuz_alani, "cevre": p.toplam_cevre, "olcu": [w, h],
-                "delik": len(p.delikler), "kalinlik": self.kalinliklar.get(self._anahtar(p), self.kalinlik.value()),
-                "yuz_sayisi": 2 if self.iki_yuz.currentIndex() == 0 else 1, "kenar": self.kenar.isChecked()}
+                "delik": len(p.delikler),
+                "kalinlik": self.kalinliklar.get(self._anahtar(p),
+                                                 self.katman_kalinlik.get(p.dis.katman.upper(), self.kalinlik.value())),
+                "yuz_sayisi": 2, "kenar": True}
 
     def _kalinlik_tumu(self, x: float):
         for tur, geo, *_ in self.ogeler:
@@ -358,6 +371,10 @@ class IceAktar(QDialog):
                 olcu = f"{sayi(x1 - x0, 1)} × {sayi(y1 - y0, 1)} × {sayi(z1 - z0, 1)}"
                 durum = hata or ("" if kaynak and kaynak["kapali"] else
                                  "açık yüzey: sac yüzeyi ise ayrıntıdan × 2 yüz seçin")
+                if kaynak and kaynak.get("sac"):
+                    durum = "sac (kalınlık modelden): iki yüz + kesim kenarları"
+                elif kaynak and float(kaynak.get("katsayi", 1)) == 2:
+                    durum = "açık yüzey modeli: iki yüz sayıldı"
                 if kaynak and kaynak.get("profil"):
                     pr = kaynak["profil"]
                     durum = ("profil: dış, iç (uçlardan " + sayi(kaynak["ic_derinlik"], 0) + " mm), uç kesitleri"
@@ -365,8 +382,9 @@ class IceAktar(QDialog):
             else:
                 olcu, durum = "", hata
             alan = sayi(kaynak_alani(kaynak) / 1e6, 4) if kaynak else "—"
-            for c, x in enumerate([("2D açınım" if tur == "2d" else "3D gövde"), olcu, "" if tur == "2d" else "—",
-                                   alan, durum], start=1):
+            kal = "" if tur == "2d" else (f"{sayi(kaynak['sac']['kalinlik'], 2)} mm" if kaynak and kaynak.get("sac")
+                                          else "—")
+            for c, x in enumerate([("2D açınım" if tur == "2d" else "3D gövde"), olcu, kal, alan, durum], start=1):
                 h = QTableWidgetItem(x)
                 h.setFlags(h.flags() & ~Qt.ItemIsEditable)
                 if c == 4:
@@ -375,7 +393,11 @@ class IceAktar(QDialog):
                     h.setForeground(QBrush(QColor(170, 40, 40)))
                     h.setToolTip(hata)
                 self.tablo.setItem(r, c, h)
-        self.tablo.setColumnHidden(3, not any(t == "2d" for t, *_ in self.ogeler))
+        self.tablo.setColumnHidden(3, not any(t == "2d" or (k and k.get("sac")) for t, _, k, *_ in self.ogeler))
+        if not self.stl:  # 2D sac kalınlığı satırları yalnız 2D parça varken (3D sacın kalınlığı modelden)
+            iki_d = any(t == "2d" for t, *_ in self.ogeler)
+            self._form.setRowVisible(self._kal_satir, iki_d)
+            self._form.setRowVisible(self._kal_bilgi, iki_d)
         self.rapor_dugmesi.setVisible(any(h for *_, h in self.ogeler))
         self.tablo.resizeColumnsToContents()
         if self.ogeler and not self.tablo.selectedItems():
@@ -414,7 +436,7 @@ class IceAktar(QDialog):
     def _imza(tur, geo, kaynak) -> tuple:
         """(seçenekler, sayılar): seçenekler birebir, sayılar (alan, çevre, ölçüler) toleransla karşılaştırılır."""
         if tur == "2d":
-            return (("2d", kaynak["kalinlik"], kaynak["yuz_sayisi"], kaynak["kenar"]),
+            return (("2d", kaynak["kalinlik"]),
                     [kaynak["yuz_alani"], kaynak["cevre"]] + sorted(kaynak["olcu"]))
         a, b = geo.kutu() if geo is not None else ((0, 0, 0), (0, 0, 0))
         return ("3d", kaynak.get("kapali")), [kaynak["alan"]] + sorted(b[i] - a[i] for i in range(3))
@@ -684,6 +706,7 @@ class AnaPencere(QMainWindow):
         self.tablo = QTableWidget(0, len(SUTUNLAR))
         self.tablo.setHorizontalHeaderLabels(SUTUNLAR)
         self.tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tablo.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Ctrl / Shift ile çoklu seçim
         self.tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tablo.verticalHeader().hide()
         self.tablo.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -822,12 +845,83 @@ class AnaPencere(QMainWindow):
         w.setWordWrap(True)
         self.ayrinti_alan.setWidget(w)
 
+    def _secili_satirlar(self) -> List[int]:
+        return sorted({i.row() for i in self.tablo.selectedItems() if 0 <= i.row() < len(self.kalemler)})
+
     def _secim(self):
+        satirlar = self._secili_satirlar()
+        if len(satirlar) > 1:
+            self.ayrinti_alan.setWidget(self._coklu(satirlar))
+            return
         r = self._secili()
         if r < 0:
             self._ayrinti_bos()
             return
         self.ayrinti_alan.setWidget(self._ayrinti(r))
+
+    def _coklu(self, satirlar: List[int]) -> QWidget:
+        """Birden çok kalem seçiliyken: toz (teorik yöntemde film kalınlığı) hepsine birden."""
+        w = QWidget()
+        v = QVBoxLayout(w)
+        kalemler = [self.kalemler[r] for r in satirlar]
+        b = QGroupBox(f"{len(kalemler)} kalem seçili ({sum(k.adet for k in kalemler)} adet)")
+        f = QFormLayout(b)
+        toz = QComboBox()
+        tozlar = [t.ad for t in self.ayar.tozlar]
+        ortak = {self.ayar.toz(k.toz).ad for k in kalemler}
+        if len(ortak) > 1:
+            toz.addItem("— karışık —")
+        toz.addItems(tozlar)
+        if len(ortak) == 1:
+            toz.setCurrentText(next(iter(ortak)))
+
+        def toz_ata(ad_):
+            if ad_ not in tozlar:
+                return
+            for r in satirlar:
+                self.kalemler[r].toz = ad_
+            if toz.itemText(0) == "— karışık —":
+                toz.blockSignals(True)
+                toz.removeItem(0)
+                toz.setCurrentText(ad_)
+                toz.blockSignals(False)
+            self._coklu_sonrasi(satirlar, sonuc)
+        toz.currentTextChanged.connect(toz_ata)
+        f.addRow("Toz (hepsine)", toz)
+        if not self.ayar.pratik:
+            kal = _cift(10.0, 1000.0, self.ayar.toz(kalemler[0].toz).kalinlik_um, 0, 5, "µm")
+
+            def kal_ata(x):
+                for r in satirlar:
+                    self.kalemler[r].kalinlik_um = x
+                self._coklu_sonrasi(satirlar, sonuc)
+            kal.valueChanged.connect(kal_ata)
+            f.addRow("Film kalınlığı (hepsine)", kal)
+        v.addWidget(b)
+        sonuc = QLabel()
+        sonuc.setWordWrap(True)
+        v.addWidget(sonuc)
+        v.addStretch(1)
+        self._coklu_ozet(satirlar, sonuc)
+        return w
+
+    def _coklu_ozet(self, satirlar: List[int], etiket: QLabel):
+        try:
+            o = ozet([self.kalemler[r] for r in satirlar], self.ayar)
+        except ValueError as h:
+            etiket.setText(f"<span style='color:#a02020'>{h}</span>")
+            return
+        etiket.setText(f"Seçilenler: <b>{sayi(o.toplam_m2, 3)} m²</b> · toz <b>{sayi(o.toz_kg, 3)} kg</b> · "
+                       f"<b>{sayi(o.tutar, 2)} {self.ayar.para}</b>")
+
+    def _coklu_sonrasi(self, satirlar: List[int], etiket: QLabel):
+        self.tablo.blockSignals(True)
+        for r in satirlar:
+            self._satir(r)
+        self.tablo.blockSignals(False)
+        self._coklu_ozet(satirlar, etiket)
+        self._toplam()
+        self._degisti()
 
     def _ayrinti(self, r: int) -> QWidget:
         k = self.kalemler[r]
@@ -854,15 +948,7 @@ class AnaPencere(QMainWindow):
             t = _cift(0.0, 100.0, float(kaynak.get("kalinlik", 0.0)), 2, 0.1, "mm")
             t.valueChanged.connect(lambda x: self._kaynak(r, kalinlik=x))
             gf.addRow("Sac kalınlığı", t)
-            yz = QComboBox()
-            yz.addItems(["İki yüz", "Tek yüz"])
-            yz.setCurrentIndex(0 if int(kaynak.get("yuz_sayisi", 2)) == 2 else 1)
-            yz.currentIndexChanged.connect(lambda i: self._kaynak(r, yuz_sayisi=2 if i == 0 else 1))
-            gf.addRow("Boyanan yüz", yz)
-            kn = QCheckBox("Kesim kenarları boyanır")
-            kn.setChecked(bool(kaynak.get("kenar", True)))
-            kn.toggled.connect(lambda b: self._kaynak(r, kenar=b))
-            gf.addRow("", kn)
+            gf.addRow("Boyanan", QLabel("iki yüz + kesim kenarları (çevre × kalınlık)"))
         elif kaynak["tur"] == "3d" and kaynak.get("profil"):
             pr = kaynak["profil"]
             ic_alan = sum(a for a, _ in pr.get("ic", []))
@@ -888,22 +974,18 @@ class AnaPencere(QMainWindow):
             ucb.setChecked(bool(kaynak.get("uc_boya", True)))
             ucb.toggled.connect(lambda b: self._kaynak(r, uc_boya=b))
             gf.addRow("", ucb)
+        elif kaynak["tur"] == "3d" and kaynak.get("sac"):
+            sc = kaynak["sac"]
+            g.setTitle("3D sac (kalınlık ve yüzler modelden)")
+            gf.addRow("Sac kalınlığı", QLabel(f"{sayi(sc['kalinlik'], 2)} mm"))
+            gf.addRow("İki yüz", QLabel(f"{sayi(sc['yuz'] / 1e6, 4)} m²"))
+            gf.addRow("Kesim kenarları", QLabel(f"{sayi(sc['kenar'] / 1e6, 4)} m² (delik duvarları dahil, boyanır)"))
         elif kaynak["tur"] == "3d":
             gf.addRow("Yüzey alanı", QLabel(f"{sayi(kaynak['alan'] / 1e6, 4)} m² ({kaynak.get('varlik', '')})"))
-            if not kaynak.get("kapali", True):
-                uy = QLabel("Gövde kapalı değil (açık yüzey). Sacın tek yüzü çizilmişse iki yüz sayın.")
-                uy.setWordWrap(True)
-                uy.setStyleSheet("color: #8a5a00;")
-                gf.addRow(uy)
-            ks = QComboBox()
-            ks.addItems(["Çizilen yüzey (× 1)", "İki yüz (× 2)"])
-            ks.setCurrentIndex(1 if float(kaynak.get("katsayi", 1)) == 2 else 0)
-            ks.currentIndexChanged.connect(lambda i: self._kaynak(r, katsayi=2.0 if i else 1.0))
-            gf.addRow("Sayılan", ks)
-            ipucu = QLabel("Borunun iç yüzeyi modelde varsa alana girer; içi boyanmıyorsa maskeye yazın.")
-            ipucu.setWordWrap(True)
-            ipucu.setStyleSheet("color: palette(placeholder-text);")
-            gf.addRow(ipucu)
+            if float(kaynak.get("katsayi", 1)) == 2:
+                gf.addRow(QLabel("Açık yüzey modeli (sacın tek yüzü): iki yüz sayıldı."))
+            else:
+                gf.addRow(QLabel("Modeldeki bütün yüzeyler sayıldı."))
         elif kaynak["tur"] == "kalip":
             form = KalipFormu(kaynak["kalip"], kaynak.get("deger", {}))
             form.degisti.connect(lambda: self._kaynak(r, deger=form.deger()))

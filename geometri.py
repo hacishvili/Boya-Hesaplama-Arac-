@@ -295,6 +295,25 @@ class Ag:
                 say[k] = say.get(k, 0) + 1
         return bool(say) and all(v == 2 for v in say.values())
 
+    def sac_yuzeyi_mi(self, tol: float = 1e-4) -> bool:
+        """Açık yüzey modeli bir sacın tek yüzü mü: kenarı tek yüzde kalan sınırın boyu, alanın karekökünün iki
+        katından uzunsa (küçük açıklıklı kapalı gövde değil). Böyle modelde iki yüz sayılır."""
+        if self.tel or self.kapali_mi(tol):
+            return False
+        say: Dict[Tuple, int] = {}
+        uzun: Dict[Tuple, float] = {}
+        for y in self.yuzler:
+            for i in range(len(y)):
+                p, q = y[i], y[(i + 1) % len(y)]
+                a, b = self._anahtar(p, tol), self._anahtar(q, tol)
+                if a == b:
+                    continue
+                k = (a, b) if a < b else (b, a)
+                say[k] = say.get(k, 0) + 1
+                uzun[k] = math.dist(p, q)
+        sinir = sum(uzun[k] for k, n in say.items() if n == 1)
+        return sinir > 2.0 * math.sqrt(max(self.alan, 0.0))
+
     def kutu(self) -> Tuple[Nokta3, Nokta3]:
         pts = [p for y in self.yuzler for p in y] or [(0.0, 0.0, 0.0)]
         return (tuple(min(p[i] for p in pts) for i in range(3)),

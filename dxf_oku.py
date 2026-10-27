@@ -41,6 +41,7 @@ class Govde3D:
     hata: str = ""                 # dolu: alan hesaplanamadı, nedeni
     tani: str = ""                 # hata raporu için ham veri (ACIS yüzey kaydı)
     profil: Optional[object] = None  # profil.Profil (mm, mm²): dış / iç / uç yüzeyler
+    sac: Optional[object] = None     # profil.Sac (mm, mm²): kalınlık, iki yüz, kesim kenarları
 
     @property
     def alan(self) -> float:
@@ -309,6 +310,55 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
     return s
 
 
+_SAYI = r"(\d+(?:[.,]\d+)?)"
+_KALINLIK_DESEN = [
+    rf"(?<![a-zçğıöşü])(?:t|s|thk|kal[ıi]nl[ıi]k|thickness|et)\s*[=:]\s*{_SAYI}\s*(?:mm)?",   # t=2, S: 1,5
+    rf"(?<![a-zçğıöşü])(?:kal[ıi]nl[ıi]k|thickness|sac)\s+{_SAYI}\s*mm",                   # kalınlık 2 mm
+    rf"{_SAYI}\s*mm\s*(?:sac|dkp|hrp|crp|paslanmaz|galvaniz|alüminyum|aluminyum)",          # 2 mm DKP
+]
+
+
+def _kalinlik_ara(metin: str, gevsek: bool = False) -> List[float]:
+    """Metindeki sac kalınlığı yazımları (mm, 0,3 … 30). gevsek: katman / dosya adında yalnız '2mm', 'T2' de."""
+    import re
+    desenler = list(_KALINLIK_DESEN)
+    if gevsek:
+        desenler += [rf"(?<![\d.,]){_SAYI}\s*mm(?![a-z])", rf"(?<![a-zçğıöşü])t\s*{_SAYI}(?![\d])"]
+    out = []
+    for d in desenler:
+        for m in re.finditer(d, metin.lower()):
+            x = float(m.group(1).replace(",", "."))
+            if 0.3 <= x <= 30:
+                out.append(x)
+    return out
+
+
+def kalinlik_ipucu(doc, dosya_adi: str = "") -> Tuple[Optional[float], str, Dict[str, float]]:
+    """Çizimden sac kalınlığı: (varsayılan, kaynağı, katman → kalınlık). Yazılarda tek bir değer varsa o;
+    yoksa dosya adında. Katman adında kalınlık yazıyorsa o katmandaki parçalar için ayrıca."""
+    katman: Dict[str, float] = {}
+    adlar = {l.dxf.name for l in doc.layers} | {e.dxf.get("layer", "0") for e in doc.modelspace()}
+    for ad in adlar:  # tablodaki ve öğelerin kullandığı (tabloda olmayabilir) katmanlar
+        v = set(_kalinlik_ara(ad, gevsek=True))
+        if len(v) == 1:
+            katman[ad.upper()] = v.pop()
+    yazi = set()
+    for e in doc.modelspace():
+        if e.dxftype() == "TEXT":
+            yazi |= set(_kalinlik_ara(e.dxf.get("text", "")))
+        elif e.dxftype() == "MTEXT":
+            yazi |= set(_kalinlik_ara(e.plain_text()))
+    if len(yazi) == 1:
+        return yazi.pop(), "çizimdeki yazıdan", katman
+    if dosya_adi:
+        v = set(_kalinlik_ara(os.path.splitext(os.path.basename(dosya_adi))[0], gevsek=True))
+        if len(v) == 1:
+            return v.pop(), "dosya adından", katman
+    if len(set(katman.values())) == 1 and katman:
+        return next(iter(katman.values())), "katman adından", katman
+    return None, "", katman
+
+
 def birim_uyarisi(en_buyuk_mm: float) -> str:
     """Mobilya parçası için olağandışı büyüklük: birim büyük olasılıkla yanlış (m yazıp mm çizmek gibi)."""
     if en_buyuk_mm > 5000.0:
@@ -345,5 +395,9 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
             pr.boy, pr.kesit, pr.bosluk = pr.boy * k, (pr.kesit[0] * k, pr.kesit[1] * k), pr.bosluk * k
             pr.dis, pr.uc = pr.dis * k * k, pr.uc * k * k
             pr.ic = [(a * k * k, L * k) for a, L in pr.ic]
-        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr))
+        sac = None
+        if g.sac is not None and not hata:
+            sac = g.sac
+            sac.kalinlik, sac.yuz, sac.kenar = sac.kalinlik * k, sac.yuz * k * k, sac.kenar * k * k
+        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac))
     return out

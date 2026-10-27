@@ -213,3 +213,63 @@ def coz(yuzler: Sequence[YuzBilgi], oran: float = 2.5) -> Optional[Profil]:
         else:
             pr.dis += y.alan
     return pr
+
+
+# ---------------------------------------------------------------- sac
+
+@dataclass
+class Sac:
+    kalinlik: float                   # mm (modelden)
+    yuz: float                        # iki yüz (büküm yüzleri dahil), mm²
+    kenar: float                      # kesim kenarları ve delik duvarları, mm²
+
+    def sozluk(self) -> Dict:
+        return {"kalinlik": self.kalinlik, "yuz": self.yuz, "kenar": self.kenar}
+
+
+def sac_coz(yuzler: Sequence[YuzBilgi]) -> Optional[Sac]:
+    """Sac parça mı (düz ya da bükümlü): paralel düz yüz çiftlerinin aralığı kalınlıktır. Alanca en
+    ağır aralık seçilir; çiftlere giren yüzler toplam alanın yarısından çoksa ve kalınlık parçanın ikinci büyük
+    ölçüsünün dörtte birinden küçükse sac sayılır. Eş eksenli, yarıçap farkı kalınlık kadar silindirler büküm
+    yüzüdür; geri kalan yüzler (kesim kenarları, delik duvarları) kenardır."""
+    toplam = sum(y.alan for y in yuzler)
+    pts = [q for y in yuzler for d in y.donguler for q in d]
+    if toplam <= 0 or len(pts) < 4:
+        return None
+    olcu = sorted(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3))
+    duz = [(i, y) for i, y in enumerate(yuzler) if y.tur == "duzlem" and y.normal is not None and y.donguler]
+    adaylar = []  # (aralık, ağırlık, i, j)
+    for x in range(len(duz)):
+        i, a = duz[x]
+        for z in range(x + 1, len(duz)):
+            j, b = duz[z]
+            if abs(_ic(a.normal, b.normal)) > 0.9995:  # paralel (AutoCAD iki yüzü aynı normalle, yönü yüzde yazar)
+                d = abs(_ic(_cik(b.donguler[0][0], a.donguler[0][0]), a.normal))
+                if d > 1e-6:
+                    adaylar.append((d, min(a.alan, b.alan), i, j))
+    if not adaylar:
+        return None
+    kume: List[List[tuple]] = []
+    for c in sorted(adaylar):
+        if kume and abs(c[0] - kume[-1][0][0]) <= max(0.01, 1e-3 * c[0]):
+            kume[-1].append(c)
+        else:
+            kume.append([c])
+    en = max(kume, key=lambda k: sum(c[1] for c in k))
+    t = sum(c[0] * c[1] for c in en) / sum(c[1] for c in en)
+    yuz_id = {i for c in en for i in c[2:]}
+    # büküm: eş eksenli iki silindir, yarıçap farkı ≈ t
+    koni = [(i, y) for i, y in enumerate(yuzler) if y.tur == "koni" and y.eksen is not None and y.merkez is not None]
+    for x in range(len(koni)):
+        i, a = koni[x]
+        for j, b in koni[x + 1:]:
+            if abs(abs(_ic(a.eksen, b.eksen)) - 1) > 1e-6:
+                continue
+            fark = _cik(b.merkez, a.merkez)
+            yanal = _cik(fark, tuple(_ic(fark, a.eksen) * c for c in a.eksen))
+            if math.sqrt(_ic(yanal, yanal)) <= max(0.01, 1e-3 * t) and abs(abs(a.r0 - b.r0) - t) <= max(0.01, 1e-3 * t):
+                yuz_id |= {i, j}
+    yuz = sum(yuzler[i].alan for i in yuz_id)
+    if yuz < 0.5 * toplam or t > 0.25 * olcu[1]:
+        return None
+    return Sac(t, yuz, toplam - yuz)

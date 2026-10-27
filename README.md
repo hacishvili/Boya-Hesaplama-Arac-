@@ -20,8 +20,12 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
 
 - **Çizim ekle (DXF / DWG / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
   parçaları siz seçersiniz. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
-  - **2D açınımlar:** sac kalınlığı her parçaya ayrı girilir (tablodaki "Sac kalınlığı" sütunu; üstteki kutu
-    hepsine birden uygular). Boyanan yüz (iki yüz / tek yüz) ve kesim kenarlarının boyanıp boyanmadığı da seçilir.
+  - **2D açınımlar:** iki yüz ve kesim kenarları (çevre × kalınlık) boyanır. Sac kalınlığı çizimden okunur:
+    yazıdaki "t=2", "S: 1,5", "kalınlık 2 mm", "2 mm DKP"; katman adındaki "2MM", "T1.5" (o katmanın parçaları);
+    dosya adındaki "..._2mm". Bulunamazsa girilir. Her parçaya ayrı da girilebilir (tablodaki "Sac kalınlığı"
+    sütunu; üstteki kutu hepsine birden uygular).
+  - **3D saclar:** kalınlık modelden bulunur (paralel iki büyük yüzün arası); iki yüz ve kesim kenarları (delik
+    duvarları dahil) ayrı gösterilir, hepsi boyanır. Yüzey modeli (sacın tek yüzü) iki yüz sayılır.
   - **Aynı parçalar:** alanı ve ölçüleri aynı olan kopyalar tek kalemde toplanır, adet kopya sayısı olur
     (istenirse kapatılır).
   - **DWG:** ücretsiz [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter) kurulu
@@ -31,6 +35,7 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
   çıkmayan parçalar (teknik resim, boru ayaklar) için kullanılır.
 - **Elle alan:** alanı bilinen parçalar için doğrudan m² girilir.
 - **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu (teorik yöntemde film kalınlığı).
+  Birden çok kalem seçilince (Ctrl / Shift) toz hepsine birden atanır.
 - **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, DWG için ODA
   dönüştürücüsünün yolu ve toz kütüphanesi (sarfiyat m²/kg, fiyat; teorik yöntem için yoğunluk, kalınlık). Bu ayarlar `%APPDATA%\TozBoyaHesap\ayarlar.json` dosyasında saklanır.
 - **Proje dosyası:** `.tozboya`. Hesap için gereken her şey bu dosyanın içindedir; çizim dosyası taşınsa da
@@ -82,7 +87,8 @@ Daireler tam formülle (πr²) hesaplanır. Yaylar en çok 0,0005 mm sehimle ço
 
 - **3DFACE, POLYFACE ve MESH:** alan tam hesaplanır.
 - **Birden çok gövde:** dosyada birden fazla gövde varsa her biri ayrı parça olarak listelenir.
-- **Açık yüzey modeli:** sacın tek yüzü çizilmişse program bunu belirtir; ayrıntı panelinden "iki yüz" seçilir.
+- **Açık yüzey modeli:** sacın tek yüzü çizilmişse iki yüz sayılır (sınırı uzun açık yüzey; küçük açıklıklı
+  gövde değil).
 - **AutoCAD katıları (3DSOLID, metin ya da ikili ACIS):** yüzeyin türüne göre:
   - **düzlem, silindir, koni, küre, torus (boru dirseği):** kesin formülle;
   - **spline (NURBS):** loft yapılmış konik / oval ayak gibi kırpılmamış yüzeyler sayısal integralle.

@@ -114,8 +114,8 @@ def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
     tur = k.get("tur")
     if tur == "2d":
         w, h = k.get("olcu", (0, 0))
-        yuz = "iki yüz" if int(k.get("yuz_sayisi", 2)) == 2 else "tek yüz"
-        kenar = f", kenarlar (t = {sayi(k.get('kalinlik', 0), 2)} mm)" if k.get("kenar", True) else ", kenarsız"
+        yuz = "iki yüz" if int(k.get("yuz_sayisi", 2)) == 2 else "tek yüz"  # eski projelerde tek yüz olabilir
+        kenar = f" + kesim kenarları (t = {sayi(k.get('kalinlik', 0), 2)} mm)" if k.get("kenar", True) else ", kenarsız"
         delik = f", {k.get('delik', 0)} delik" if k.get("delik") else ""
         return f"2D açınım {sayi(w, 1)} × {sayi(h, 1)} mm{delik}; {yuz}{kenar}"
     if tur == "3d" and k.get("profil"):
@@ -128,6 +128,8 @@ def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
         if not k.get("uc_boya", True):
             s += "; uç kesitleri boyanmaz"
         return s
+    if tur == "3d" and k.get("sac"):
+        return f"3D sac t = {sayi(k['sac']['kalinlik'], 2)} mm; iki yüz + kesim kenarları"
     if tur == "3d":
         s = f"3D gövde ({k.get('varlik', '')})"
         if not k.get("kapali", True):

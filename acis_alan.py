@@ -820,6 +820,7 @@ class Govde:
         self.kapali = True
         self.tani: List[str] = []           # hesaplanamayan yüzlerin ham yüzey verisi (hata raporu için)
         self.profil = None                  # profil.Profil: dış / iç / uç yüzeyler (profilse)
+        self.sac = None                     # profil.Sac: kalınlık, iki yüz, kesim kenarları (sac parçaysa)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -889,6 +890,7 @@ def govdeler(e) -> List[Govde]:
                 if not turler:
                     import profil
                     g.profil = profil.coz(bilgiler)
+                    g.sac = profil.sac_coz(bilgiler) if g.profil is None else None
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:

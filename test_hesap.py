@@ -117,7 +117,7 @@ class Kalip(unittest.TestCase):
         self.assertAlmostEqual(kaliplar.alan("Lama / dolu kare", {"a": 30, "b": 5, "L": 100, "uclar": "boyanmaz"}),
                                7000.0)
         self.assertAlmostEqual(kaliplar.alan("Sac levha", {"a": 300, "b": 200, "t": 1, "yuz": "tek yüz"}),
-                               60000 + 1000)
+                               2 * 60000 + 1000)  # yüz seçimi yok: eski projedeki "tek yüz" yok sayılır
         self.assertIn("Ø40", kaliplar.aciklama("Konik ayak (boru)", {}))
 
 

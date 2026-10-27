@@ -111,8 +111,7 @@ def _sac(d: Dict) -> float:
     k = KALIPLAR["Sac levha"]
     a, b, t = _d(d, "a", k), _d(d, "b", k), _d(d, "t", k)
     _dogrula(a > 0 and b > 0 and t >= 0, "Sac: ölçüler > 0.")
-    yuz = 2 if _d(d, "yuz", k) == "iki yüz" else 1
-    return yuz * a * b + 2 * (a + b) * t
+    return 2 * a * b + 2 * (a + b) * t  # iki yüz + kesim kenarları
 
 
 def _dogrula(kosul: bool, mesaj: str):
@@ -155,8 +154,7 @@ _ekle(Kalip("Lama / dolu kare", [
 ], _lama, lambda d: f"Lama {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 'L')} mm"))
 _ekle(Kalip("Sac levha", [
     Olcu("a", "En", 300.0), Olcu("b", "Boy", 200.0), Olcu("t", "Kalınlık", 1.5),
-    Olcu("yuz", "Boyanan yüz", "iki yüz", "", ("iki yüz", "tek yüz")),
-], _sac, lambda d: f"Sac {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')} mm, {d.get('yuz', 'iki yüz')}"))
+], _sac, lambda d: f"Sac {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')} mm, iki yüz + kesim kenarları"))
 
 
 def _s(d: Dict, k: str) -> str:

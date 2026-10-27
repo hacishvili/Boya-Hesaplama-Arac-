@@ -13,6 +13,9 @@ from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication([])
 
 import pencere  # noqa: E402
+from PySide6.QtWidgets import QComboBox, QTableWidgetSelectionRange  # noqa: E402
+
+pencere.QComboBox, pencere.QTableWidgetSelectionRange = QComboBox, QTableWidgetSelectionRange
 from hesap import kalem_sonucu  # noqa: E402
 
 
@@ -109,6 +112,46 @@ class Arayuz(unittest.TestCase):
         metin = d.hata_raporu_metni()
         self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", metin)
         self.assertIn("{ exact_spl_sur 22600 full nubs 1 1", metin)
+
+    def test_kalinlik_cizimden(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        m.add_lwpolyline([(200, 0), (300, 0), (300, 50), (200, 50)], close=True, dxfattribs={"layer": "SAC_3MM"})
+        m.add_mtext("MALZEME: DKP\\Pt=2").set_location((0, 80))
+        m.add_text("ÖLÇEK 1:2").set_placement((0, 100))
+        yol = os.path.join(self.klasor, "parca.dxf")
+        doc.saveas(yol)
+        d = pencere.IceAktar(yol, "Polyester")
+        self.assertEqual(d.kalinlik.value(), 2.0)
+        self.assertIn("yazıdan", d.kalinlik_notu.text())
+        self.assertEqual(sorted(k.kaynak["kalinlik"] for k in d.kalemler()), [2.0, 3.0])  # katmandaki 3 mm
+        # yazı yoksa dosya adından
+        doc2 = ezdxf.new("R2018")
+        doc2.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        yol2 = os.path.join(self.klasor, "kapak_1,5mm.dxf")
+        doc2.saveas(yol2)
+        d2 = pencere.IceAktar(yol2, "Polyester")
+        self.assertEqual(d2.kalinlik.value(), 1.5)
+        self.assertIn("dosya adından", d2.kalinlik_notu.text())
+
+    def test_coklu_secimle_toz(self):
+        w = pencere.AnaPencere()
+        for i in range(3):
+            w.kalemler.append(pencere.Kalem(f"P{i}", {"tur": "elle", "alan_m2": 0.1 * (i + 1)}, toz=w.ayar.tozlar[0].ad))
+        w._yenile()
+        w.tablo.selectRow(0)
+        w.tablo.setRangeSelected(pencere.QTableWidgetSelectionRange(0, 0, 1, len(pencere.SUTUNLAR) - 1), True)
+        self.assertEqual(w._secili_satirlar(), [0, 1])
+        panel = w.ayrinti_alan.widget()
+        toz = panel.findChild(pencere.QComboBox)
+        toz.setCurrentText(w.ayar.tozlar[2].ad)
+        self.assertEqual([k.toz for k in w.kalemler], [w.ayar.tozlar[2].ad] * 2 + [w.ayar.tozlar[0].ad])
+        self.assertEqual(w.tablo.item(1, 4).text(), w.ayar.tozlar[2].ad)
+        self.assertEqual(w._secili_satirlar(), [0, 1])  # seçim korunur
+        w.degisti = False
+        w.close()
 
     def test_kalip_penceresi(self):
         k = pencere.KalipPenceresi("Polyester")
