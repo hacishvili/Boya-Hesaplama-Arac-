@@ -41,20 +41,26 @@ jobs:
         with:
           name: TozBoyaHesap-windows
           path: dist/TozBoyaHesap_*.zip
-      # main'e yeni sürüm (surum.py) gelince Releases'e: program buradan kendini günceller (guncelleme.py)
+      # main'e yeni sürüm (surum.py) gelince Releases'e: program buradan kendini günceller (guncelleme.py).
+      # main'de elle başlatınca (workflow_dispatch) da çalışır; başarısızsa çıktı hata notu olarak da yazılır.
       - name: Sürümü yayımla
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
+          hata() { echo "::error title=Sürümü yayımla::$(tail -n 30 yayin.log | tr -d '\r' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"; exit 1; }
           SURUM=$(python -c "from surum import SURUM; print(SURUM)")
-          if gh release view "v$SURUM" > /dev/null 2>&1; then
+          if gh release view "v$SURUM" --repo "$GITHUB_REPOSITORY" > yayin.log 2>&1; then
             echo "v$SURUM zaten yayımlı; sürüm numarası artmadıkça yeni yayın yapılmaz."
             exit 0
           fi
-          cd dist
-          sha256sum "TozBoyaHesap_$SURUM.zip" > "TozBoyaHesap_$SURUM.zip.sha256"
+          ZIP="dist/TozBoyaHesap_$SURUM.zip"
+          ls -la dist > yayin.log 2>&1 || hata
+          test -f "$ZIP" || { echo "paket yok: $ZIP" >> yayin.log; hata; }
+          (cd dist && sha256sum "TozBoyaHesap_$SURUM.zip" > "TozBoyaHesap_$SURUM.zip.sha256") >> yayin.log 2>&1 || hata
           git log -1 --pretty=%B > notlar.txt
-          gh release create "v$SURUM" "TozBoyaHesap_$SURUM.zip" "TozBoyaHesap_$SURUM.zip.sha256" \
-            --target "$GITHUB_SHA" --title "Toz Boya Hesabı $SURUM" --notes-file notlar.txt
+          gh release create "v$SURUM" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Toz Boya Hesabı $SURUM" --notes-file notlar.txt >> yayin.log 2>&1 || hata
+          cat yayin.log
