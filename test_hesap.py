@@ -10,7 +10,8 @@ import kaliplar
 import proje
 import rapor
 import stl_oku
-from hesap import Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_alani, ozet, sayi, teorik_kaplama, toz_kg
+from hesap import (Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_alani, ozet, pratik_kg, sayi, teorik_kaplama, toz_kg,
+                   yontem_ozeti)
 from test_geometri import kup
 
 
@@ -23,8 +24,31 @@ class Toz_(unittest.TestCase):
         with self.assertRaises(ValueError):
             toz_kg(1, 70, 1.5, 0)
 
+    def test_pratik_varsayilan(self):
+        # atölye oranı: 1 kg tozla 6 m²
+        a = Ayarlar()
+        self.assertTrue(a.pratik)
+        self.assertTrue(all(t.sarfiyat_m2_kg == 6.0 for t in a.tozlar))
+        self.assertEqual(yontem_ozeti(a), "pratik sarfiyat: 1 kg = 6,0 m²")
+        k = Kalem("ayak", {"tur": "elle", "alan_m2": 0.25}, adet=400, maske_cm2=50.0, toz=a.tozlar[0].ad,
+                  kalinlik_um=120.0)  # kalınlık pratik yöntemde hesaba girmez
+        s = kalem_sonucu(k, a)
+        self.assertAlmostEqual(s.toplam_m2, 0.245 * 400)
+        self.assertAlmostEqual(s.toz_kg, 0.245 * 400 / 6)
+        self.assertAlmostEqual(s.toz_g_adet, 245 / 6)
+        self.assertIsNone(s.kalinlik_um)
+        a.tozlar[0].sarfiyat_m2_kg = 5.0  # metalik toz gibi daha az veren
+        self.assertAlmostEqual(kalem_sonucu(k, a).toz_kg, 0.245 * 400 / 5)
+        with self.assertRaises(ValueError):
+            pratik_kg(1.0, 0.0)
+        # eski ayar dosyası (yöntem ve sarfiyat yok): pratik, 6 m²/kg
+        eski = Ayarlar.sozlukten({"verim": 0.7, "tozlar": [{"ad": "X", "yogunluk": 1.6}]})
+        self.assertTrue(eski.pratik)
+        self.assertEqual(eski.tozlar[0].sarfiyat_m2_kg, 6.0)
+
     def test_kalem_ve_ozet(self):
-        a = Ayarlar(verim=0.5, proses_tl_m2=10.0, tozlar=[Toz("A", 1.5, 200.0, 70.0), Toz("B", 1.2, 100.0, 60.0)])
+        a = Ayarlar(yontem="teorik", verim=0.5, proses_tl_m2=10.0,
+                    tozlar=[Toz("A", 1.5, 200.0, 70.0), Toz("B", 1.2, 100.0, 60.0)])
         k1 = Kalem("plaka", {"tur": "2d", "yuz_alani": 50_000.0, "cevre": 1000.0, "kalinlik": 2.0,
                              "yuz_sayisi": 2, "kenar": True}, adet=10, maske_cm2=20.0, toz="A")
         self.assertAlmostEqual(kaynak_alani(k1.kaynak), 102_000.0)
@@ -139,7 +163,7 @@ class Dosyalar(unittest.TestCase):
         shutil.rmtree(self.klasor, ignore_errors=True)
 
     def test_proje_ve_csv(self):
-        a = Ayarlar(verim=0.7, tozlar=[Toz("Siyah mat; RAL 9005", 1.6, 250.0, 80.0)])
+        a = Ayarlar(verim=0.7, tozlar=[Toz("Siyah mat; RAL 9005", 1.6, 250.0, 80.0, 5.5)])
         k = [Kalem("ayak", {"tur": "kalip", "kalip": "Yuvarlak boru", "deger": {"D": 30.0, "L": 150.0}}, 400,
                    5.0, "Siyah mat; RAL 9005"),
              Kalem("plaka", {"tur": "2d", "yuz_alani": 1000.0, "cevre": 130.0, "kalinlik": 2.0, "olcu": [50, 20]},
@@ -159,6 +183,7 @@ class Dosyalar(unittest.TestCase):
         metin = ham.decode("utf-8-sig")
         self.assertIn('"Siyah mat; RAL 9005"', metin)
         self.assertIn("TOPLAM", metin)
+        self.assertIn("1 kg = 5,5 m²", metin)
         self.assertIn("Müşteri A", rapor.html_rapor(k, a, "Müşteri A"))
 
     def test_yabanci_dosya(self):

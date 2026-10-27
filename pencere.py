@@ -24,7 +24,8 @@ import proje
 import rapor
 import stl_oku
 from geometri import Ag, Parca2D
-from hesap import Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, ozet, sayi, teorik_kaplama
+from hesap import (Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, ozet, sayi, teorik_kaplama,
+                   yontem_ozeti)
 from surum import SURUM
 
 UYGULAMA = "Toz Boya Hesabı"
@@ -503,13 +504,19 @@ class AyarPenceresi(QDialog):
     def __init__(self, ayar: Ayarlar, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ayarlar ve toz kütüphanesi")
-        self.resize(720, 460)
+        self.resize(820, 480)
         v = QVBoxLayout(self)
         f = QFormLayout()
         v.addLayout(f)
+        self.yontem = QComboBox()
+        self.yontem.addItems(["Pratik: alan ÷ sarfiyat (1 kg tozla boyanan m²)",
+                              "Teorik: kalınlık × yoğunluk ÷ transfer verimi"])
+        self.yontem.setCurrentIndex(0 if ayar.pratik else 1)
+        self.yontem.setToolTip("Pratik oran atölyede ölçülür (ör. 1 kg ile 6 m²); fire ve kayıplar içindedir.")
+        f.addRow("Toz hesabı", self.yontem)
         self.verim = _cift(1.0, 100.0, ayar.verim * 100, 0, 1, "%")
-        self.verim.setToolTip("Tabancadan çıkan tozun parçada kalan oranı. Geri kazanımsız tek geçiş %50–70, "
-                              "geri kazanımlı hat %90–95.")
+        self.verim.setToolTip("Teorik yöntemde: tabancadan çıkan tozun parçada kalan oranı. Geri kazanımsız tek geçiş "
+                              "%50–70, geri kazanımlı hat %90–95.")
         f.addRow("Transfer verimi", self.verim)
         self.proses = _cift(0.0, 1e6, ayar.proses_tl_m2, 2, 1)
         self.proses.setToolTip("Ön işlem, fırın, askı ve işçilik; m² başına. Yalnız toz maliyeti için 0.")
@@ -527,10 +534,10 @@ class AyarPenceresi(QDialog):
         h.addWidget(self.oda, 1)
         h.addWidget(gozat)
         f.addRow("ODA File Converter", h)
-        v.addWidget(QLabel("Tozlar (yoğunluk ve kalınlık teknik föyden):"))
-        self.tablo = QTableWidget(0, 5)
-        self.tablo.setHorizontalHeaderLabels(["Ad", "Yoğunluk (g/cm³)", "Fiyat (/kg)", "Kalınlık (µm)",
-                                              "Teorik kaplama (m²/kg)"])
+        v.addWidget(QLabel("Tozlar (sarfiyat atölyeden; yoğunluk ve kalınlık teknik föyden, yalnız teorik yöntemde):"))
+        self.tablo = QTableWidget(0, 6)
+        self.tablo.setHorizontalHeaderLabels(["Ad", "Sarfiyat (m²/kg)", "Fiyat (/kg)", "Yoğunluk (g/cm³)",
+                                              "Kalınlık (µm)", "Teorik kaplama (m²/kg)"])
         self.tablo.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tablo.verticalHeader().hide()
         v.addWidget(self.tablo, 1)
@@ -553,6 +560,17 @@ class AyarPenceresi(QDialog):
         b.accepted.connect(self._tamam)
         b.rejected.connect(self.reject)
         v.addWidget(b)
+        self.yontem.currentIndexChanged.connect(self._yontem)
+        self._yontem()
+
+    def _yontem(self, *_):
+        """Seçili yöntemin kullanmadığı alanlar pasif."""
+        teorik = self.yontem.currentIndex() == 1
+        self.verim.setEnabled(teorik)
+        for r in range(self.tablo.rowCount()):
+            self.tablo.cellWidget(r, 1).setEnabled(not teorik)
+            for c in (3, 4):
+                self.tablo.cellWidget(r, c).setEnabled(teorik)
 
     def _oda_sec(self):
         yol, _ = QFileDialog.getOpenFileName(self, "ODA File Converter", "", "ODAFileConverter (ODAFileConverter*)")
@@ -563,16 +581,20 @@ class AyarPenceresi(QDialog):
         r = self.tablo.rowCount()
         self.tablo.insertRow(r)
         self.tablo.setItem(r, 0, QTableWidgetItem(t.ad))
-        ys, fs, ks = _cift(0.5, 5.0, t.yogunluk, 2, 0.05), _cift(0.0, 1e6, t.fiyat, 2, 1), _cift(10, 1000, t.kalinlik_um, 0, 5)
-        for c, w in ((1, ys), (2, fs), (3, ks)):
+        ss = _cift(0.1, 100.0, t.sarfiyat_m2_kg, 2, 0.1)
+        fs = _cift(0.0, 1e6, t.fiyat, 2, 1)
+        ys, ks = _cift(0.5, 5.0, t.yogunluk, 2, 0.05), _cift(10, 1000, t.kalinlik_um, 0, 5)
+        for c, w in ((1, ss), (2, fs), (3, ys), (4, ks)):
             self.tablo.setCellWidget(r, c, w)
         kap = QTableWidgetItem()
         kap.setFlags(kap.flags() & ~Qt.ItemIsEditable)
-        self.tablo.setItem(r, 4, kap)
+        self.tablo.setItem(r, 5, kap)
         yenile = lambda *_: kap.setText(sayi(teorik_kaplama(ys.value(), ks.value()), 2))
         ys.valueChanged.connect(yenile)
         ks.valueChanged.connect(yenile)
         yenile()
+        if hasattr(self, "yontem"):
+            self._yontem()
 
     def _sil(self):
         r = self.tablo.currentRow()
@@ -587,11 +609,13 @@ class AyarPenceresi(QDialog):
         self.accept()
 
     def ayar(self) -> Ayarlar:
-        a = Ayarlar(verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
+        a = Ayarlar(yontem="teorik" if self.yontem.currentIndex() == 1 else "pratik",
+                    verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
                     para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(), tozlar=[])
         for r in range(self.tablo.rowCount()):
-            a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), self.tablo.cellWidget(r, 1).value(),
-                                self.tablo.cellWidget(r, 2).value(), self.tablo.cellWidget(r, 3).value()))
+            w = lambda c: self.tablo.cellWidget(r, c).value()
+            a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), yogunluk=w(3), fiyat=w(2), kalinlik_um=w(4),
+                                sarfiyat_m2_kg=w(1)))
         return a
 
 
@@ -710,6 +734,7 @@ class AnaPencere(QMainWindow):
         for r in range(len(self.kalemler)):
             self._satir(r)
         self.tablo.blockSignals(False)
+        self.tablo.setColumnHidden(5, self.ayar.pratik)  # kalınlık yalnız teorik yöntemde hesaba girer
         for c in range(len(SUTUNLAR)):
             if c != 1:
                 self.tablo.resizeColumnToContents(c)
@@ -724,7 +749,7 @@ class AnaPencere(QMainWindow):
         try:
             s = kalem_sonucu(k, self.ayar)
             veri = [k.ad, kaynak_aciklamasi(k.kaynak), str(k.adet), sayi(s.alan_m2, 4), self.ayar.toz(k.toz).ad,
-                    sayi(s.kalinlik_um, 0), sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3),
+                    "—" if s.kalinlik_um is None else sayi(s.kalinlik_um, 0), sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3),
                     f"{sayi(s.tutar, 2)} {self.ayar.para}"]
         except ValueError as h:
             veri = [k.ad, f"HATA: {h}", str(k.adet), "—", "", "", "", "", ""]
@@ -747,7 +772,7 @@ class AnaPencere(QMainWindow):
                  "(Ayarlar ve tozlar)</span>" if fiyatsiz else "")
         self.toplam.setText(
             f"<b>{len(self.kalemler)}</b> kalem, <b>{o.toplam_adet}</b> adet · Toplam alan <b>{sayi(o.toplam_m2, 2)} m²</b>"
-            f" · Toz <b>{sayi(o.toz_kg, 2)} kg</b> (verim %{sayi(self.ayar.verim * 100, 0)})<br>"
+            f" · Toz <b>{sayi(o.toz_kg, 2)} kg</b> ({yontem_ozeti(self.ayar)})<br>"
             f"{tozlar}<br>Toz {sayi(o.toz_tl, 2)} {p} + proses {sayi(o.proses_tl, 2)} {p} = <b>{sayi(o.tutar, 2)} {p}</b>"
             + uyari)
 
@@ -850,11 +875,21 @@ class AnaPencere(QMainWindow):
         kal = _cift(10.0, 1000.0, k.kalinlik_um if k.kalinlik_um is not None else self.ayar.toz(k.toz).kalinlik_um,
                     0, 5, "µm")
         kal.valueChanged.connect(lambda x: self._guncelle(r, kalinlik_um=x))
-        bf.addRow("Film kalınlığı", kal)
+        sarf = QLabel()
+        if self.ayar.pratik:  # pratik yöntemde kalınlık hesaba girmez; tozun sarfiyatı gösterilir
+            kal.hide()
+            bf.addRow("Sarfiyat", sarf)
+        else:
+            bf.addRow("Film kalınlığı", kal)
+
+        def sarfiyat_yaz():
+            sarf.setText(f"1 kg = {sayi(self.ayar.toz(k.toz).sarfiyat_m2_kg, 1)} m²  (Ayarlar ve tozlar)")
+        sarfiyat_yaz()
 
         def toz_degisti(ad_):
             eski_varsayilan = k.kalinlik_um is None
             self._guncelle(r, toz=ad_)
+            sarfiyat_yaz()
             if eski_varsayilan:
                 kal.blockSignals(True)
                 kal.setValue(self.ayar.toz(ad_).kalinlik_um)
@@ -1053,7 +1088,8 @@ class AnaPencere(QMainWindow):
 
     def hakkinda(self):
         QMessageBox.about(self, UYGULAMA,
-                          f"<b>{UYGULAMA}</b> {SURUM}<br><br>Toz = alan × kalınlık × yoğunluk / transfer verimi."
+                          f"<b>{UYGULAMA}</b> {SURUM}<br><br>Toz = alan ÷ sarfiyat (m²/kg) ya da (teorik) "
+                          "alan × kalınlık × yoğunluk ÷ transfer verimi."
                           "<br>Alan DXF / DWG'den (2D açınım, 3D yüzey ve katı), STL'den ya da kalıptan."
                           "<br><br>© 2026 Enes Özbek · MIT lisansı (LICENSE)<br>Qt / PySide6 (LGPL-3.0), ezdxf (MIT) ve "
                           "diğer bileşenler: UCUNCU_TARAF_LISANSLARI.txt")

@@ -30,21 +30,30 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
 - **Kalıptan ekle:** yuvarlak boru, kutu profil, konik ayak, dolu çubuk, lama ve sac levha. Çizimden alan
   çıkmayan parçalar (teknik resim, boru ayaklar) için kullanılır.
 - **Elle alan:** alanı bilinen parçalar için doğrudan m² girilir.
-- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu ve film kalınlığı.
-- **Ayarlar ve tozlar:** transfer verimi, m² başına proses ücreti, para birimi ve toz kütüphanesi (yoğunluk,
-  fiyat, varsayılan kalınlık). Bu ayarlar `%APPDATA%\TozBoyaHesap\ayarlar.json` dosyasında saklanır.
+- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu (teorik yöntemde film kalınlığı).
+- **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, DWG için ODA
+  dönüştürücüsünün yolu ve toz kütüphanesi (sarfiyat m²/kg, fiyat; teorik yöntem için yoğunluk, kalınlık). Bu ayarlar `%APPDATA%\TozBoyaHesap\ayarlar.json` dosyasında saklanır.
 - **Proje dosyası:** `.tozboya`. Hesap için gereken her şey bu dosyanın içindedir; çizim dosyası taşınsa da
   proje açılır.
 
 ## Hesap
 
+Varsayılan yöntem **pratik sarfiyattır**: atölyede ölçülen oran (1 kg tozla 6 m²; fire ve kayıplar içinde).
+Oran her toz için Ayarlar ve tozlar penceresinde değiştirilebilir (ör. metalik toz daha az alan verir).
+
 ```
-toz (kg)              = alan (m²) × kalınlık (µm) × yoğunluk (g/cm³) / 1000 / transfer verimi
-teorik kaplama (m²/kg) = 1000 / (yoğunluk × kalınlık)
-tutar                 = toz (kg) × toz fiyatı  +  alan (m²) × proses ücreti
+toz (kg) = alan (m²) ÷ sarfiyat (m²/kg)                       1 kg = 6 m²
+tutar    = toz (kg) × toz fiyatı  +  alan (m²) × proses ücreti
 ```
 
-Örnek: 0,25 m²'lik bir ayak, 70 µm kalınlık, 1,5 g/cm³ yoğunluk ve %65 verimle adet başına 40,4 g toz harcar.
+Örnek: 0,25 m²'lik ayak, 400 adet: 100 m² → 16,7 kg toz (adet başına 41,7 g).
+
+İstenirse ayarlardan **teorik** yönteme geçilir; o zaman film kalınlığı, yoğunluk ve transfer verimi kullanılır:
+
+```
+toz (kg)               = alan (m²) × kalınlık (µm) × yoğunluk (g/cm³) / 1000 / transfer verimi
+teorik kaplama (m²/kg) = 1000 / (yoğunluk × kalınlık)
+```
 
 ## Alan nasıl bulunur
 

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Toz boya hesabı: boyanacak alan → toz sarfiyatı → maliyet.
+"""Toz boya hesabı: boyanacak alan → toz sarfiyatı → maliyet. İki yöntem (Ayarlar.yontem):
 
-    toz (kg) = alan (m²) · kalınlık (µm) · yoğunluk (g/cm³) / 1000 / transfer verimi
-    teorik kaplama (m²/kg) = 1000 / (yoğunluk · kalınlık)
+  pratik (varsayılan)  toz (kg) = alan (m²) / sarfiyat (m²/kg)       atölyenin ölçtüğü oran: 1 kg toz ile 6 m²;
+                                                                      fire ve kayıplar oranın içinde
+  teorik               toz (kg) = alan (m²) · kalınlık (µm) · yoğunluk (g/cm³) / 1000 / transfer verimi
+                       teorik kaplama (m²/kg) = 1000 / (yoğunluk · kalınlık)
 
 Kalemin alanı kaynağından gelir (kaynak_alani): 2D açınım, 3D gövde, kalıp ya da elle girilen alan.
 Kaynakta hesaba yetecek sayılar saklanır (çizim dosyası olmadan da proje açılır ve yeniden hesaplanır)."""
@@ -19,7 +21,8 @@ class Toz:
     ad: str
     yogunluk: float = 1.5        # g/cm³ (teknik föy)
     fiyat: float = 0.0           # TL/kg
-    kalinlik_um: float = 70.0    # varsayılan film kalınlığı
+    kalinlik_um: float = 70.0    # varsayılan film kalınlığı (teorik yöntem)
+    sarfiyat_m2_kg: float = 6.0  # pratik yöntem: 1 kg tozla boyanan alan (kayıplar dahil)
 
     @property
     def teorik_kaplama(self) -> float:
@@ -29,16 +32,21 @@ class Toz:
 
 @dataclass
 class Ayarlar:
-    verim: float = 0.65          # transfer verimi (geri kazanımlı hatta 0,90–0,95)
+    yontem: str = "pratik"       # "pratik": alan / sarfiyat;  "teorik": kalınlık · yoğunluk / verim
+    verim: float = 0.65          # transfer verimi (teorik yöntem; geri kazanımlı hatta 0,90–0,95)
     proses_tl_m2: float = 0.0    # ön işlem + fırın + işçilik, m² başına (0: yalnız toz maliyeti)
     para: str = "TL"
     oda_yolu: str = ""           # ODA File Converter (DWG açmak için); boş: kendiliğinden aranır
     tozlar: List[Toz] = field(default_factory=lambda: [
-        Toz("Polyester (dış mekân)", 1.5, 0.0, 70.0),
-        Toz("Epoksi-polyester (iç mekân)", 1.45, 0.0, 60.0),
-        Toz("Epoksi", 1.5, 0.0, 70.0),
-        Toz("Metalik / efektli", 1.4, 0.0, 70.0),
+        Toz("Polyester (dış mekân)", 1.5, 0.0, 70.0, 6.0),
+        Toz("Epoksi-polyester (iç mekân)", 1.45, 0.0, 60.0, 6.0),
+        Toz("Epoksi", 1.5, 0.0, 70.0, 6.0),
+        Toz("Metalik / efektli", 1.4, 0.0, 70.0, 6.0),
     ])
+
+    @property
+    def pratik(self) -> bool:
+        return self.yontem != "teorik"
 
     def toz(self, ad: str) -> Toz:
         for t in self.tozlar:
@@ -52,18 +60,26 @@ class Ayarlar:
     @classmethod
     def sozlukten(cls, d: Dict[str, Any]) -> "Ayarlar":
         a = cls()
+        a.yontem = "teorik" if d.get("yontem") == "teorik" else "pratik"
         a.verim = float(d.get("verim", a.verim))
         a.proses_tl_m2 = float(d.get("proses_tl_m2", a.proses_tl_m2))
         a.para = str(d.get("para", a.para))
         a.oda_yolu = str(d.get("oda_yolu", ""))
         if d.get("tozlar"):
             a.tozlar = [Toz(str(t["ad"]), float(t.get("yogunluk", 1.5)), float(t.get("fiyat", 0.0)),
-                            float(t.get("kalinlik_um", 70.0))) for t in d["tozlar"]]
+                            float(t.get("kalinlik_um", 70.0)), float(t.get("sarfiyat_m2_kg", 6.0)))
+                        for t in d["tozlar"]]
         return a
 
 
 def teorik_kaplama(yogunluk: float, kalinlik_um: float) -> float:
     return 1000.0 / (yogunluk * kalinlik_um) if yogunluk > 0 and kalinlik_um > 0 else 0.0
+
+
+def pratik_kg(alan_m2: float, sarfiyat_m2_kg: float) -> float:
+    if sarfiyat_m2_kg <= 0:
+        raise ValueError("Toz sarfiyatı (m²/kg) sıfırdan büyük olmalı.")
+    return alan_m2 / sarfiyat_m2_kg
 
 
 def toz_kg(alan_m2: float, kalinlik_um: float, yogunluk: float, verim: float) -> float:
@@ -134,7 +150,7 @@ class Kalem:
 class Sonuc:
     alan_m2: float               # adet başına, maske düşülmüş
     toplam_m2: float
-    kalinlik_um: float
+    kalinlik_um: Optional[float]  # pratik yöntemde None (hesaba girmez)
     toz_g_adet: float
     toz_kg: float
     toz_tl: float
@@ -147,12 +163,16 @@ class Sonuc:
 
 def kalem_sonucu(k: Kalem, a: Ayarlar) -> Sonuc:
     toz = a.toz(k.toz)
-    t = toz.kalinlik_um if k.kalinlik_um is None else k.kalinlik_um
     alan = max(0.0, kaynak_alani(k.kaynak) / 1e6 - k.maske_cm2 / 1e4)
     toplam = alan * k.adet
-    kg = toz_kg(toplam, t, toz.yogunluk, a.verim)
-    return Sonuc(alan, toplam, t, 1000.0 * toz_kg(alan, t, toz.yogunluk, a.verim), kg, kg * toz.fiyat,
-                 toplam * a.proses_tl_m2)
+    if a.pratik:
+        t = None
+        kg_adet = pratik_kg(alan, toz.sarfiyat_m2_kg)
+    else:
+        t = toz.kalinlik_um if k.kalinlik_um is None else k.kalinlik_um
+        kg_adet = toz_kg(alan, t, toz.yogunluk, a.verim)
+    kg = kg_adet * k.adet
+    return Sonuc(alan, toplam, t, 1000.0 * kg_adet, kg, kg * toz.fiyat, toplam * a.proses_tl_m2)
 
 
 @dataclass
@@ -181,6 +201,16 @@ def ozet(kalemler: List[Kalem], a: Ayarlar) -> Ozet:
         ad = a.toz(k.toz).ad
         o.toz_bazinda[ad] = o.toz_bazinda.get(ad, 0.0) + s.toz_kg
     return o
+
+
+def yontem_ozeti(a: Ayarlar) -> str:
+    """Raporlar ve toplam satırı için: hangi yöntemle, hangi oranla."""
+    if a.pratik:
+        oranlar = {t.sarfiyat_m2_kg for t in a.tozlar}
+        if len(oranlar) == 1:
+            return f"pratik sarfiyat: 1 kg = {sayi(next(iter(oranlar)), 1)} m²"
+        return "pratik sarfiyat (toza göre m²/kg)"
+    return f"teorik: kalınlık × yoğunluk, verim %{sayi(a.verim * 100, 0)}"
 
 
 def sayi(x: float, basamak: int = 2) -> str:
