@@ -267,7 +267,9 @@ class Ag:
     """Çokgen yüzlerden ağ (3DFACE, polyface, MESH, STL, düz yüzlü ACIS). yuzler: köşe listeleri."""
     yuzler: List[List[Nokta3]]
     ad: str = ""
-    alan_hazir: Optional[float] = None  # delikli düzlem yüzleri gibi doğrudan hesaplanmış alan (mm²)
+    alan_hazir: Optional[float] = None  # doğrudan hesaplanmış alan (mm²; ACIS katılar)
+    tel: bool = False                   # yuzler yalnız kenar döngüleri (önizlemede doldurulmaz)
+    kapali_hazir: Optional[bool] = None
 
     @property
     def alan(self) -> float:
@@ -280,6 +282,8 @@ class Ag:
 
     def kapali_mi(self, tol: float = 1e-4) -> bool:
         """Her kenar tam iki yüzde mi (su geçirmez kabuk). Açık yüzey modeli sacın tek yüzü olabilir."""
+        if self.kapali_hazir is not None:
+            return self.kapali_hazir
         say: Dict[Tuple, int] = {}
         for y in self.yuzler:
             ks = [self._anahtar(p, tol) for p in y]

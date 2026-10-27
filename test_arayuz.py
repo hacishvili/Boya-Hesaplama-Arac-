@@ -55,6 +55,45 @@ class Arayuz(unittest.TestCase):
         w.degisti = False
         w.close()
 
+    def test_parca_basina_sac_kalinligi(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        m.add_lwpolyline([(200, 0), (210, 0), (210, 10), (200, 10)], close=True)
+        yol = os.path.join(self.klasor, "iki.dxf")
+        doc.saveas(yol)
+        d = pencere.IceAktar(yol, "Polyester")
+        d.kalinlik.setValue(2.0)                    # tümüne
+        satir = {round(g.dis.alan): r for r, (_, g, *_) in enumerate(d.ogeler)}
+        d.tablo.cellWidget(satir[100], 3).setValue(5.0)  # yalnız küçük parça
+        k = {round(x.kaynak["yuz_alani"]): x.kaynak["kalinlik"] for x in d.kalemler()}
+        self.assertEqual(k, {5000: 2.0, 100: 5.0})
+        self.assertEqual(d.tablo.item(satir[100], 4).text(), "0,0004")  # 2 × 100 + 40 × 5 mm²
+        d.kesikli.setChecked(True)                  # yeniden okuma: girilen kalınlıklar korunur
+        k = {round(x.kaynak["yuz_alani"]): x.kaynak["kalinlik"] for x in d.kalemler()}
+        self.assertEqual(k, {5000: 2.0, 100: 5.0})
+
+    def test_ayni_parcalar_toplanir(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        for x in (0, 300, 600):  # üç aynı plaka (biri döndürülmüş)
+            m.add_lwpolyline([(x, 0), (x + 100, 0), (x + 100, 50), (x, 50)], close=True)
+        m.add_lwpolyline([(900, 0), (950, 0), (950, 100), (900, 100)], close=True)
+        m.add_lwpolyline([(0, 200), (10, 200), (10, 210), (0, 210)], close=True)
+        yol = os.path.join(self.klasor, "cok.dxf")
+        doc.saveas(yol)
+        d = pencere.IceAktar(yol, "Polyester")
+        self.assertTrue(d.tablo.isColumnHidden(3) is False)
+        self.assertEqual(sorted((round(k.kaynak["yuz_alani"]), k.adet) for k in d.kalemler()), [(100, 1), (5000, 4)])
+        satir = [r for r, (_, g, *_) in enumerate(d.ogeler) if round(g.dis.alan) == 5000][0]
+        d.tablo.cellWidget(satir, 3).setValue(3.0)  # kalınlığı farklı olan ayrı kalem
+        self.assertEqual(sorted((round(k.kaynak["yuz_alani"]), k.adet) for k in d.kalemler()),
+                         [(100, 1), (5000, 1), (5000, 3)])
+        d.topla.setChecked(False)
+        self.assertEqual(len(d.kalemler()), 5)
+
     def test_kalip_penceresi(self):
         k = pencere.KalipPenceresi("Polyester")
         k.secim.setCurrentText("Sac levha")

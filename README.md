@@ -1,7 +1,7 @@
 # Toz Boya Hesabı
 
 Mobilya, ev aksesuarı ve koltuk ayağı gibi parçalar için toz boya hesabı yapan bir Windows masaüstü programı.
-DXF ya da STL çizimden **boyanacak alanı**, bu alandan **toz sarfiyatını** ve **maliyeti** hesaplar.
+DXF, DWG ya da STL çizimden **boyanacak alanı**, bu alandan **toz sarfiyatını** ve **maliyeti** hesaplar.
 Sipariş listesi olarak çalışır: birden çok parça, adet ve toz/renk girilir. Toplamlar toz bazında çıkar,
 böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV) ve PDF olarak alınır.
 
@@ -18,9 +18,15 @@ böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV)
 
 ## Kullanım
 
-- **Çizim ekle (DXF / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek parçaları
-  siz seçersiniz. 2D açınımlarda sac kalınlığı, boyanan yüz (iki yüz / tek yüz) ve kesim kenarlarının boyanıp
-  boyanmadığı da girilir. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
+- **Çizim ekle (DXF / DWG / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
+  parçaları siz seçersiniz. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
+  - **2D açınımlar:** sac kalınlığı her parçaya ayrı girilir (tablodaki "Sac kalınlığı" sütunu; üstteki kutu
+    hepsine birden uygular). Boyanan yüz (iki yüz / tek yüz) ve kesim kenarlarının boyanıp boyanmadığı da seçilir.
+  - **Aynı parçalar:** alanı ve ölçüleri aynı olan kopyalar tek kalemde toplanır, adet kopya sayısı olur
+    (istenirse kapatılır).
+  - **DWG:** ücretsiz [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter) kurulu
+    olmalıdır. Program onu `Program Files\ODA` altında kendisi bulur; başka yerdeyse Ayarlar'da gösterilir.
+    Kurulu değilse çizimi AutoCAD'de DXF olarak kaydetmek de yeterlidir.
 - **Kalıptan ekle:** yuvarlak boru, kutu profil, konik ayak, dolu çubuk, lama ve sac levha. Çizimden alan
   çıkmayan parçalar (teknik resim, boru ayaklar) için kullanılır.
 - **Elle alan:** alanı bilinen parçalar için doğrudan m² girilir.
@@ -68,10 +74,13 @@ Daireler tam formülle (πr²) hesaplanır. Yaylar en çok 0,0005 mm sehimle ço
 - **3DFACE, POLYFACE ve MESH:** alan tam hesaplanır.
 - **Birden çok gövde:** dosyada birden fazla gövde varsa her biri ayrı parça olarak listelenir.
 - **Açık yüzey modeli:** sacın tek yüzü çizilmişse program bunu belirtir; ayrıntı panelinden "iki yüz" seçilir.
-- **AutoCAD katıları (3DSOLID):** bütün yüzleri düz ve bütün kenarları doğru olan katıların alanı tam hesaplanır (köşeli delikler dahil).
-  Eğri yüzü (silindir, koni, yuvarlatma) olan katılar ise ACIS çekirdeği olmadan ölçülemez. Program böyle bir
-  gövdeye eksik alan vermez; gövde hata ile listelenir. Çözüm için çizimi STL olarak isteyin (AutoCAD'de
-  `STLOUT` komutu) ya da parçayı kalıptan ekleyin.
+- **AutoCAD katıları (3DSOLID, metin ya da ikili ACIS):** yüzeyin türüne göre:
+  - **düzlem, silindir, koni, küre, torus (boru dirseği):** kesin formülle;
+  - **spline (NURBS):** loft yapılmış konik / oval ayak gibi kırpılmamış yüzeyler sayısal integralle.
+
+  Kırpılmış spline yüzler ve desteklenmeyen yüzey türleri hesaplanmaz. Program böyle bir gövdeye eksik alan
+  vermez; gövde hata ile listelenir. O zaman çizimi STL olarak isteyin (AutoCAD'de `STLOUT`) ya da parçayı
+  kalıptan ekleyin.
 
 **STL.** STL'de üçgen alanları toplanır. Dosyada birim yazmaz; mm sayılır ve içe aktarırken değiştirilebilir.
 Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüzeyden çok az küçük çıkar.
@@ -92,7 +101,8 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 | Dosya | İçerik |
 |---|---|
 | `geometri.py` | kontur alanı / çevresi, iç içe yerleşim, çizgi zincirleme, 3D ağ alanı ve gövdeler |
-| `dxf_oku.py` | DXF: birim, katman, kesikli çizgi, bloklar, 2D konturlar, 3D ağlar, ACIS katılar |
+| `dxf_oku.py` | DXF / DWG: birim, katman, kesikli çizgi, bloklar, 2D konturlar, 3D ağlar, ACIS katılar |
+| `acis_alan.py` | ACIS (SAT / SAB) katı gövdelerin yüzey alanı: düzlem, silindir, koni, küre, torus, spline |
 | `stl_oku.py` | ikili ve metin STL |
 | `kaliplar.py` | boru, profil, konik ayak, çubuk, lama, sac formülleri |
 | `hesap.py` | toz, kalem, ayarlar, özet |

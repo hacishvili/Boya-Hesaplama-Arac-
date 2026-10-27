@@ -16,7 +16,7 @@ AD = "TozBoyaHesap"
 KOK = os.path.dirname(os.path.abspath(__file__))
 LISANS_DOSYALARI = ["LICENSE", "UCUNCU_TARAF_LISANSLARI.txt", "ucuncu_taraf_lisanslari"]
 # ezdxf eklentilerinin ve Qt'nin kullanılmayan parçaları (paket küçülür; kendi denemesi eksik kalanı yakalar)
-GEREKSIZ = ["matplotlib", "tkinter", "PIL", "lxml", "yaml", "ezdxf.addons", "IPython",
+GEREKSIZ = ["matplotlib", "tkinter", "PIL", "lxml", "yaml", "ezdxf.addons.drawing", "IPython",
             "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtNetwork", "PySide6.QtPdf", "PySide6.QtSvg",
             "PySide6.QtOpenGL", "PySide6.QtDBus", "PySide6.QtWebEngineCore", "PySide6.QtMultimedia"]
 

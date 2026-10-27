@@ -32,6 +32,7 @@ class Ayarlar:
     verim: float = 0.65          # transfer verimi (geri kazanımlı hatta 0,90–0,95)
     proses_tl_m2: float = 0.0    # ön işlem + fırın + işçilik, m² başına (0: yalnız toz maliyeti)
     para: str = "TL"
+    oda_yolu: str = ""           # ODA File Converter (DWG açmak için); boş: kendiliğinden aranır
     tozlar: List[Toz] = field(default_factory=lambda: [
         Toz("Polyester (dış mekân)", 1.5, 0.0, 70.0),
         Toz("Epoksi-polyester (iç mekân)", 1.45, 0.0, 60.0),
@@ -54,6 +55,7 @@ class Ayarlar:
         a.verim = float(d.get("verim", a.verim))
         a.proses_tl_m2 = float(d.get("proses_tl_m2", a.proses_tl_m2))
         a.para = str(d.get("para", a.para))
+        a.oda_yolu = str(d.get("oda_yolu", ""))
         if d.get("tozlar"):
             a.tozlar = [Toz(str(t["ad"]), float(t.get("yogunluk", 1.5)), float(t.get("fiyat", 0.0)),
                             float(t.get("kalinlik_um", 70.0))) for t in d["tozlar"]]

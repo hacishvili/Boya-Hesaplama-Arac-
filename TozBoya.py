@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Toz Boya Hesabı — başlatıcı.
 
-  TozBoya.py [proje.tozboya | çizim.dxf | çizim.stl ...]
+  TozBoya.py [proje.tozboya | çizim.dxf | çizim.dwg | çizim.stl ...]
   TozBoya.py --self-test     paketin kendi denemesi: örnek DXF'ler üretilir, okunur, hesaplanır, PDF yazılır
 """
 import os
@@ -49,6 +49,10 @@ def kendini_dene() -> int:
     s3 = dxf_oku.cozumle(dxf_oku.belge_ac(yol3))
     if len(s3.govdeler) != 1 or abs(s3.govdeler[0].alan - 16000) > 1e-6:
         hatalar.append("3D katı alanı")
+    try:  # DWG için ODA dönüştürücüsünü çağıran modül pakette olmalı
+        from ezdxf.addons import odafc  # noqa: F401
+    except ImportError:
+        hatalar.append("DWG modülü (ezdxf.addons.odafc)")
     a = Ayarlar()
     k = Kalem("plaka", {"tur": "2d", "yuz_alani": beklenen, "cevre": 600 + 20 * math.pi, "olcu": [200, 100],
                         "kalinlik": 2.0}, 10, toz=a.tozlar[0].ad)
@@ -87,7 +91,7 @@ def main() -> int:
     projeler = [d for d in dosyalar if d.lower().endswith(".tozboya")]
     if projeler:
         w.ac(yol=projeler[0])
-    cizimler = [d for d in dosyalar if d.lower().endswith((".dxf", ".stl"))]
+    cizimler = [d for d in dosyalar if d.lower().endswith((".dxf", ".dwg", ".stl"))]
     if cizimler:
         w.dosya_ekle(yollar=cizimler)
     return app.exec()

@@ -28,7 +28,7 @@ from hesap import Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_aciklamasi, kaynak_a
 from surum import SURUM
 
 UYGULAMA = "Toz Boya Hesabı"
-DOSYA_SUZGECI = "Çizimler (*.dxf *.stl);;DXF (*.dxf);;STL (*.stl)"
+DOSYA_SUZGECI = "Çizimler (*.dxf *.dwg *.stl);;DXF (*.dxf);;DWG (*.dwg);;STL (*.stl)"
 
 
 def _cift(en: float, boy: float, deger: float, basamak: int = 2, adim: float = 1.0, sonek: str = "") -> QDoubleSpinBox:
@@ -113,6 +113,12 @@ class Onizleme(QWidget):
         if not pts2:
             return
         donus = self._sigdir(pts2, r)
+        if self._ag.tel:  # ACIS katı: kenar döngüleri
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(30, 80, 140), 1.0))
+            for y in yuzler:
+                p.drawPolygon(QPolygonF([donus(*proj(q)) for q in y]))
+            return
         isik = (-0.4, -0.5, 0.77)
         sirali = sorted(yuzler, key=lambda y: sum(q[0] + q[1] - q[2] * 0.0 for q in y) / len(y), reverse=True)
         kalem = QPen(QColor(30, 60, 90, 90), 0.5)
@@ -135,7 +141,7 @@ class Onizleme(QWidget):
 class IceAktar(QDialog):
     """DXF / STL'deki parçaları gösterir; kullanıcı birimi, katmanları ve eklenecekleri seçer."""
 
-    def __init__(self, yol: str, varsayilan_toz: str, parent=None):
+    def __init__(self, yol: str, varsayilan_toz: str, parent=None, oda_yolu: str = ""):
         super().__init__(parent)
         self.yol = yol
         self.dosya_adi = os.path.splitext(os.path.basename(yol))[0]
@@ -143,7 +149,7 @@ class IceAktar(QDialog):
         self.toz = varsayilan_toz
         self.setWindowTitle(f"Dosya ekle — {os.path.basename(yol)}")
         self.resize(980, 620)
-        self.doc = None if self.stl else dxf_oku.belge_ac(yol)
+        self.doc = None if self.stl else dxf_oku.belge_ac(yol, oda_yolu)
         self.sonuc: Optional[dxf_oku.DxfSonuc] = None
         self.ogeler: List = []   # (tür, geometri, kaynak, ad, hata)
 
@@ -168,20 +174,26 @@ class IceAktar(QDialog):
         satir.addStretch(1)
         form.addRow("Çizim birimi", satir)
         self.kalinlik = _cift(0.0, 100.0, 1.5, 2, 0.1, "mm")
-        self.kalinlik.setToolTip("2D açınımda kenar alanı için: kenarlar = çevre × kalınlık")
+        self.kalinlik.setToolTip("Bütün 2D parçalara uygulanır; parçaların kalınlığı tabloda ayrı ayrı da "
+                                 "değiştirilebilir. Kenar alanı = çevre × kalınlık")
+        self.kalinliklar: Dict[tuple, float] = {}  # parça anahtarı → sac kalınlığı (yeniden okumada korunur)
         self.iki_yuz = QComboBox()
         self.iki_yuz.addItems(["İki yüz", "Tek yüz"])
         self.kenar = QCheckBox("Kesim kenarları boyanır")
         self.kenar.setChecked(True)
         self.kesikli = QCheckBox("Kesikli çizgileri de al (eksen, gizli, büküm)")
+        self.topla = QCheckBox("Aynı parçaları tek satırda topla (adet olarak)")
+        self.topla.setChecked(True)
+        self.topla.setToolTip("Alanı, ölçüleri (ve 2D'de kalınlığı) aynı olan parçalar tek kalem olur; adet kopya sayısıdır")
         if not self.stl:
-            form.addRow("Sac kalınlığı (2D)", self.kalinlik)
+            form.addRow("Sac kalınlığı (tümü)", self.kalinlik)
             h = QHBoxLayout()
             h.addWidget(self.iki_yuz)
             h.addWidget(self.kenar)
             h.addStretch(1)
             form.addRow("Boyanan (2D)", h)
             form.addRow("", self.kesikli)
+        form.addRow("", self.topla)
         self.katmanlar = QListWidget()
         self.katmanlar.setMaximumHeight(130)
         if not self.stl:
@@ -192,9 +204,10 @@ class IceAktar(QDialog):
 
         orta = QSplitter(Qt.Horizontal)
         ana.addWidget(orta, 1)
-        self.tablo = QTableWidget(0, 5)
-        self.tablo.setHorizontalHeaderLabels(["Ekle / ad", "Tür", "Ölçü (mm)", "Alan / adet (m²)", "Durum"])
-        self.tablo.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.tablo = QTableWidget(0, 6)
+        self.tablo.setHorizontalHeaderLabels(["Ekle / ad", "Tür", "Ölçü (mm)", "Sac kalınlığı", "Alan / adet (m²)",
+                                              "Durum"])
+        self.tablo.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tablo.verticalHeader().hide()
         self.tablo.itemSelectionChanged.connect(self._sec)
@@ -217,9 +230,9 @@ class IceAktar(QDialog):
         self.birim.currentIndexChanged.connect(self.cozumle)
         self.kesikli.toggled.connect(self.cozumle)
         self.katmanlar.itemChanged.connect(self.cozumle)
-        for w in (self.kalinlik, self.iki_yuz, self.kenar):
-            (w.valueChanged if isinstance(w, QDoubleSpinBox) else
-             w.currentIndexChanged if isinstance(w, QComboBox) else w.toggled).connect(self._alanlari_yenile)
+        self.kalinlik.valueChanged.connect(self._kalinlik_tumu)
+        self.iki_yuz.currentIndexChanged.connect(self._alanlari_yenile)
+        self.kenar.toggled.connect(self._alanlari_yenile)
         self.cozumle()
 
     # -- çözümleme
@@ -277,11 +290,29 @@ class IceAktar(QDialog):
         self.uyari.setText("\n".join(uyarilar))
         self._tabloyu_doldur()
 
+    @staticmethod
+    def _anahtar(p: Parca2D) -> tuple:
+        k = p.dis.kutu
+        return round(p.yuz_alani, 3), round(p.toplam_cevre, 3), round(k[0], 3), round(k[1], 3)
+
     def _kaynak2d(self, p: Parca2D) -> Dict:
         w, h = p.olcu
         return {"tur": "2d", "yuz_alani": p.yuz_alani, "cevre": p.toplam_cevre, "olcu": [w, h],
-                "delik": len(p.delikler), "kalinlik": self.kalinlik.value(),
+                "delik": len(p.delikler), "kalinlik": self.kalinliklar.get(self._anahtar(p), self.kalinlik.value()),
                 "yuz_sayisi": 2 if self.iki_yuz.currentIndex() == 0 else 1, "kenar": self.kenar.isChecked()}
+
+    def _kalinlik_tumu(self, x: float):
+        for tur, geo, *_ in self.ogeler:
+            if tur == "2d":
+                self.kalinliklar[self._anahtar(geo)] = x
+        self._alanlari_yenile()
+
+    def _kalinlik_satir(self, r: int, x: float):
+        tur, geo, kaynak, ad, hata = self.ogeler[r]
+        self.kalinliklar[self._anahtar(geo)] = x
+        kaynak = self._kaynak2d(geo)
+        self.ogeler[r] = (tur, geo, kaynak, ad, hata)
+        self.tablo.item(r, 4).setText(sayi(kaynak_alani(kaynak) / 1e6, 4))
 
     def _alanlari_yenile(self, *_):
         for i, (tur, geo, kaynak, ad, hata) in enumerate(self.ogeler):
@@ -307,9 +338,13 @@ class IceAktar(QDialog):
             else:
                 it.setCheckState(Qt.Checked if (tur == "3d" or not uc_var) else Qt.Unchecked)
             self.tablo.setItem(r, 0, it)
+            self.tablo.removeCellWidget(r, 3)
             if tur == "2d":
                 olcu = f"{sayi(geo.olcu[0], 1)} × {sayi(geo.olcu[1], 1)}"
                 durum = f"{len(geo.delikler)} delik" if geo.delikler else ""
+                kal = _cift(0.0, 100.0, float(kaynak["kalinlik"]), 2, 0.1, "mm")
+                kal.valueChanged.connect(lambda x, r=r: self._kalinlik_satir(r, x))
+                self.tablo.setCellWidget(r, 3, kal)
             elif geo is not None:
                 (x0, y0, z0), (x1, y1, z1) = geo.kutu()
                 olcu = f"{sayi(x1 - x0, 1)} × {sayi(y1 - y0, 1)} × {sayi(z1 - z0, 1)}"
@@ -318,14 +353,16 @@ class IceAktar(QDialog):
             else:
                 olcu, durum = "", hata
             alan = sayi(kaynak_alani(kaynak) / 1e6, 4) if kaynak else "—"
-            for c, x in enumerate([("2D açınım" if tur == "2d" else "3D gövde"), olcu, alan, durum], start=1):
+            for c, x in enumerate([("2D açınım" if tur == "2d" else "3D gövde"), olcu, "" if tur == "2d" else "—",
+                                   alan, durum], start=1):
                 h = QTableWidgetItem(x)
                 h.setFlags(h.flags() & ~Qt.ItemIsEditable)
-                if c == 3:
+                if c == 4:
                     h.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if hata:
                     h.setForeground(QBrush(QColor(170, 40, 40)))
                 self.tablo.setItem(r, c, h)
+        self.tablo.setColumnHidden(3, not any(t == "2d" for t, *_ in self.ogeler))
         self.tablo.resizeColumnsToContents()
         if self.ogeler and not self.tablo.selectedItems():
             self.tablo.selectRow(0)
@@ -339,15 +376,38 @@ class IceAktar(QDialog):
         else:
             self.onizleme.goster(None)
 
+    @staticmethod
+    def _imza(tur, geo, kaynak) -> tuple:
+        """(seçenekler, sayılar): seçenekler birebir, sayılar (alan, çevre, ölçüler) toleransla karşılaştırılır."""
+        if tur == "2d":
+            return (("2d", kaynak["kalinlik"], kaynak["yuz_sayisi"], kaynak["kenar"]),
+                    [kaynak["yuz_alani"], kaynak["cevre"]] + sorted(kaynak["olcu"]))
+        a, b = geo.kutu() if geo is not None else ((0, 0, 0), (0, 0, 0))
+        return ("3d", kaynak.get("kapali")), [kaynak["alan"]] + sorted(b[i] - a[i] for i in range(3))
+
+    @staticmethod
+    def _ayni_mi(x: list, y: list) -> bool:
+        """Alan ve çevre milyonda bir (en az 0,05), ölçüler 0,05 mm içinde."""
+        return (all(abs(p - q) <= max(0.05, 1e-6 * abs(p)) for p, q in zip(x[:-3], y[:-3]))
+                and all(abs(p - q) <= 0.05 for p, q in zip(x[-3:], y[-3:])) and len(x) == len(y))
+
     def kalemler(self) -> List[Kalem]:
-        out = []
+        out: List[Kalem] = []
+        gruplar: List[tuple] = []   # (seçenekler, sayılar, kalem)
         for r, (tur, geo, kaynak, ad, hata) in enumerate(self.ogeler):
             it = self.tablo.item(r, 0)
             if kaynak is None or it.checkState() != Qt.Checked:
                 continue
+            secenek, sayilar = self._imza(tur, geo, kaynak)
+            if self.topla.isChecked():
+                es = next((k for s_, n_, k in gruplar if s_ == secenek and self._ayni_mi(n_, sayilar)), None)
+                if es is not None:
+                    es.adet += 1
+                    continue
             k = Kalem(it.text().strip() or ad, copy.deepcopy(kaynak), toz=self.toz, dosya=self.yol)
             k.geo = geo
             out.append(k)
+            gruplar.append((secenek, sayilar, k))
         return out
 
 
@@ -457,6 +517,16 @@ class AyarPenceresi(QDialog):
         self.para = QLineEdit(ayar.para)
         self.para.setMaximumWidth(80)
         f.addRow("Para birimi", self.para)
+        self.oda = QLineEdit(ayar.oda_yolu)
+        self.oda.setPlaceholderText(dxf_oku.oda_bul() or "bulunamadı — DWG için kurun")
+        self.oda.setToolTip("DWG açmak için ücretsiz ODA File Converter. Boş bırakılırsa Program Files\\ODA altında "
+                            f"aranır. İndirme: {dxf_oku.ODA_INDIR}")
+        gozat = QPushButton("Gözat…")
+        gozat.clicked.connect(self._oda_sec)
+        h = QHBoxLayout()
+        h.addWidget(self.oda, 1)
+        h.addWidget(gozat)
+        f.addRow("ODA File Converter", h)
         v.addWidget(QLabel("Tozlar (yoğunluk ve kalınlık teknik föyden):"))
         self.tablo = QTableWidget(0, 5)
         self.tablo.setHorizontalHeaderLabels(["Ad", "Yoğunluk (g/cm³)", "Fiyat (/kg)", "Kalınlık (µm)",
@@ -483,6 +553,11 @@ class AyarPenceresi(QDialog):
         b.accepted.connect(self._tamam)
         b.rejected.connect(self.reject)
         v.addWidget(b)
+
+    def _oda_sec(self):
+        yol, _ = QFileDialog.getOpenFileName(self, "ODA File Converter", "", "ODAFileConverter (ODAFileConverter*)")
+        if yol:
+            self.oda.setText(yol)
 
     def _satir(self, t: Toz):
         r = self.tablo.rowCount()
@@ -512,7 +587,8 @@ class AyarPenceresi(QDialog):
         self.accept()
 
     def ayar(self) -> Ayarlar:
-        a = Ayarlar(self.verim.value() / 100.0, self.proses.value(), self.para.text().strip() or "TL", [])
+        a = Ayarlar(verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
+                    para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(), tozlar=[])
         for r in range(self.tablo.rowCount()):
             a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), self.tablo.cellWidget(r, 1).value(),
                                 self.tablo.cellWidget(r, 2).value(), self.tablo.cellWidget(r, 3).value()))
@@ -595,7 +671,7 @@ class AnaPencere(QMainWindow):
                 arac.addAction(a)
             return a
 
-        eylem("Çizim ekle (DXF / STL)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
+        eylem("Çizim ekle (DXF / DWG / STL)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
         eylem("Kalıptan ekle", self.kalip_ekle, QStyle.SP_FileDialogDetailedView, "Ctrl+K", menu_kalem)
         eylem("Elle alan", self.elle_ekle, QStyle.SP_FileDialogNewFolder, None, menu_kalem)
         eylem("Çoğalt", self.cogalt, None, "Ctrl+Shift+D", menu_kalem, aracta=False)
@@ -681,7 +757,7 @@ class AnaPencere(QMainWindow):
 
     # -- ayrıntı paneli
     def _ayrinti_bos(self):
-        w = QLabel("Bir kalem seçin ya da ekleyin.\n\nÇizim ekle: DXF (2D açınım, 3D yüzey / katı) ya da STL.\n"
+        w = QLabel("Bir kalem seçin ya da ekleyin.\n\nÇizim ekle: DXF / DWG (2D açınım, 3D yüzey / katı) ya da STL.\n"
                    "Kalıptan ekle: boru, profil, konik ayak, çubuk, lama, sac.\n\nDosyaları pencereye sürükleyip "
                    "bırakabilirsiniz.")
         w.setAlignment(Qt.AlignCenter)
@@ -842,7 +918,11 @@ class AnaPencere(QMainWindow):
             yollar, _ = QFileDialog.getOpenFileNames(self, "Çizim ekle", "", DOSYA_SUZGECI)
         for yol in yollar:
             try:
-                d = IceAktar(yol, self._varsayilan_toz(), self)
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+                try:
+                    d = IceAktar(yol, self._varsayilan_toz(), self, self.ayar.oda_yolu)
+                finally:
+                    QApplication.restoreOverrideCursor()
             except Exception as h:  # bozuk / desteklenmeyen dosya: ezdxf çeşitli hatalar atar
                 QMessageBox.warning(self, UYGULAMA, f"{os.path.basename(yol)} açılamadı:\n{h}")
                 continue
@@ -974,7 +1054,7 @@ class AnaPencere(QMainWindow):
     def hakkinda(self):
         QMessageBox.about(self, UYGULAMA,
                           f"<b>{UYGULAMA}</b> {SURUM}<br><br>Toz = alan × kalınlık × yoğunluk / transfer verimi."
-                          "<br>Alan DXF'ten (2D açınım, 3D yüzey / düz yüzlü katı), STL'den ya da kalıptan."
+                          "<br>Alan DXF / DWG'den (2D açınım, 3D yüzey ve katı), STL'den ya da kalıptan."
                           "<br><br>© 2026 Enes Özbek · MIT lisansı (LICENSE)<br>Qt / PySide6 (LGPL-3.0), ezdxf (MIT) ve "
                           "diğer bileşenler: UCUNCU_TARAF_LISANSLARI.txt")
 
@@ -986,7 +1066,7 @@ class AnaPencere(QMainWindow):
     def dropEvent(self, e):
         yollar = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         projeler = [y for y in yollar if y.lower().endswith(".tozboya")]
-        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".stl"))]
+        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".dwg", ".stl"))]
         if projeler:
             self.ac(yol=projeler[0])
         if cizimler:

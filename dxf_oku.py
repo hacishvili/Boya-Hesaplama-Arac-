@@ -5,17 +5,18 @@
 eklenir (geometri.zincirle). Kesikli çizgi tipleri (eksen, gizli, büküm çizgisi) varsayılan olarak alınmaz.
 Ölçü, yazı, tarama ve benzeri çizim öğeleri alana girmez.
 
-3D: 3DFACE, POLYFACE / POLYMESH, MESH ağları; 3DSOLID / BODY / REGION / SURFACE (ACIS katı) yalnız bütün
-yüzleri düzlem ve bütün kenarları doğru olduğunda hesaplanır. Eğri yüzlü katının alanı (boru, yuvarlak
-ayak) ACIS çekirdeği olmadan bulunamaz; o gövde hatasıyla döner, eksik alan sessizce verilmez."""
+3D: 3DFACE, POLYFACE / POLYMESH, MESH ağları; 3DSOLID / BODY / REGION / SURFACE (ACIS katı): düzlem, silindir,
+koni, küre, torus ve kırpılmamış spline yüzler (acis_alan). Hesaplanamayan yüzü olan gövde hatasıyla döner,
+eksik alan sessizce verilmez."""
 from __future__ import annotations
 
 import math
+import os
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from geometri import Ag, Kontur, Parca2D, cokgen_alani, vektor_alan, yerlestir, zincirle
+from geometri import Ag, Kontur, Parca2D, yerlestir, zincirle
 
 # $INSUNITS → mm (0: birimsiz; mm sayılır, pencere sorar)
 BIRIMLER: Dict[int, Tuple[str, float]] = {
@@ -65,10 +66,47 @@ class DxfSonuc:
         return BIRIMLER.get(self.birim_kodu, (f"kod {self.birim_kodu}", 1.0))[0]
 
 
-def belge_ac(yol: str):
-    """DXF'i açar; bozuk dosyada ezdxf'in onarıcı okuyucusuna geçer."""
+ODA_INDIR = "https://www.opendesign.com/guestfiles/oda_file_converter"
+
+
+class DwgHatasi(Exception):
+    pass
+
+
+def oda_bul(ayar_yolu: str = "") -> str:
+    """ODA File Converter'ın yolu: ayardaki, yoksa Program Files\\ODA\\ODAFileConverter <sürüm>\\ (en yenisi)."""
+    import glob
+    import shutil
+    adaylar = [ayar_yolu] if ayar_yolu else []
+    for kok in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), os.environ.get("ProgramFiles(x86)")):
+        if kok:
+            adaylar += sorted(glob.glob(os.path.join(kok, "ODA", "ODAFileConverter*", "ODAFileConverter.exe")),
+                              reverse=True)
+    adaylar.append(shutil.which("ODAFileConverter") or "")
+    return next((a for a in adaylar if a and os.path.isfile(a)), "")
+
+
+def dwg_ac(yol: str, oda_yolu: str = ""):
+    """DWG'yi ODA File Converter ile DXF 2010'a çevirip açar (katılar metin ACIS olarak gelir)."""
+    import ezdxf
+    exe = oda_bul(oda_yolu)
+    if not exe:
+        raise DwgHatasi("DWG dosyasını açmak için ücretsiz ODA File Converter gerekli. İndirip kurun (ya da yolunu "
+                        f"Ayarlar'da gösterin): {ODA_INDIR}\nYa da çizimi AutoCAD'de DXF olarak kaydedin.")
+    from ezdxf.addons import odafc
+    ezdxf.options.set("odafc-addon", "win_exec_path" if os.name == "nt" else "unix_exec_path", exe)
+    try:
+        return odafc.readfile(yol, version="R2010")
+    except odafc.ODAFCError as h:
+        raise DwgHatasi(f"DWG dönüştürülemedi ({h}).") from h
+
+
+def belge_ac(yol: str, oda_yolu: str = ""):
+    """DXF'i açar (bozuk dosyada ezdxf'in onarıcı okuyucusuna geçer); DWG'yi ODA File Converter ile."""
     import ezdxf
     from ezdxf import recover
+    if yol.lower().endswith(".dwg"):
+        return dwg_ac(yol, oda_yolu)
     try:
         return ezdxf.readfile(yol)
     except ezdxf.DXFStructureError:
@@ -282,80 +320,22 @@ def birim_uyarisi(en_buyuk_mm: float) -> str:
 
 # ---------------------------------------------------------------- ACIS
 
-def _dongu_noktalari(loop, m) -> Optional[List[Tuple[float, float, float]]]:
-    """Döngünün köşeleri; doğru olmayan kenar varsa None."""
-    noktalar = []
-    ilk = loop.coedge
-    c = ilk
-    adim = 0
-    while not c.is_none:
-        kenar = c.edge
-        if kenar.is_none or kenar.curve.is_none or kenar.curve.type != "straight-curve":
-            return None
-        v = kenar.end_vertex if c.sense else kenar.start_vertex
-        p = v.point.location
-        if m is not None:
-            p = m.transform(p)
-        noktalar.append((p.x, p.y, p.z))
-        c = c.next_coedge
-        adim += 1
-        if c is ilk:
-            return noktalar
-        if adim > 1_000_000:
-            return None
-    return None
-
-
 def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
-    """ACIS varlığının her parçası (lump) bir gövde. Bütün yüzler düzlem ve kenarlar doğruysa alan kesin
-    (delikli yüzlerde iç döngüler düşülür); değilse gövde hata ile döner."""
-    from ezdxf.acis import api as acis
+    """ACIS varlığının her parçası (lump) bir gövde (acis_alan). Bir yüzü bile hesaplanamayan gövde hatasıyla
+    döner; alanı eksik verilmez."""
+    import acis_alan
     try:
-        bodies = acis.load_dxf(e)
-    except Exception as hata:  # ezdxf bilinmeyen ACIS sürümünde çeşitli hatalar atar
-        return [Govde3D(ad, e.dxftype(), katman, None, f"ACIS verisi okunamadı ({type(hata).__name__}).")]
+        govdeler = acis_alan.govdeler(e)
+    except Exception as hata:  # bozuk / bilinmeyen ACIS verisi: ezdxf'in ayrıştırıcısı çeşitli hatalar atar
+        return [Govde3D(ad, e.dxftype(), katman, None, f"ACIS verisi okunamadı ({hata}).")]
     out: List[Govde3D] = []
-    sira = 0
-    for body in bodies:
-        m = None if body.transform.is_none else body.transform.matrix
-        lump = body.lump
-        while not lump.is_none:
-            sira += 1
-            yuzler, toplam, egri, yuz_say = [], 0.0, 0, 0
-            shell = lump.shell
-            while not shell.is_none:
-                face = shell.face
-                while not face.is_none:
-                    yuz_say += 1
-                    if face.surface.type != "plane-surface":
-                        egri += 1
-                        face = face.next_face
-                        continue
-                    donguler, loop, bozuk = [], face.loop, False
-                    while not loop.is_none:
-                        d = _dongu_noktalari(loop, m)
-                        if d is None:
-                            bozuk = True
-                            break
-                        donguler.append([(x * k, y * k, z * k) for x, y, z in d])
-                        loop = loop.next_loop
-                    if bozuk or not donguler:
-                        egri += 1
-                    else:
-                        alanlar = sorted((cokgen_alani(d) for d in donguler), reverse=True)
-                        toplam += alanlar[0] - sum(alanlar[1:])
-                        yuzler.extend(donguler)
-                    face = face.next_face
-                shell = shell.next_shell
-            isim = ad if sira == 1 and lump.next_lump.is_none else f"{ad}.{sira}"
-            if egri:
-                out.append(Govde3D(isim, e.dxftype(), katman, Ag(yuzler) if yuzler else None,
-                                   f"{yuz_say} yüzün {egri} tanesi eğri (silindir, koni, yay kenarı...). "
-                                   "Eğri yüzlü katının alanı DXF'ten hesaplanamaz: çizimi STL olarak isteyin "
-                                   "(AutoCAD: STLOUT komutu) ya da kalıptan ekleyin."))
-            else:
-                out.append(Govde3D(isim, e.dxftype(), katman, Ag(yuzler, alan_hazir=toplam)))
-            lump = lump.next_lump
-    if not out:
-        out.append(Govde3D(ad, e.dxftype(), katman, None, "ACIS varlığında katı gövde yok."))
+    for i, g in enumerate(govdeler):
+        isim = ad if len(govdeler) == 1 else f"{ad}.{i + 1}"
+        donguler = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.donguler]
+        ag = Ag(donguler, alan_hazir=g.alan * k * k, tel=True, kapali_hazir=g.kapali) if donguler or not g.hata else None
+        hata = ""
+        if g.hata:
+            hata = (g.hata + ". Bu gövdenin alanı DXF'ten hesaplanamıyor: çizimi STL olarak isteyin "
+                    "(AutoCAD: STLOUT) ya da parçayı kalıptan ekleyin.")
+        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata))
     return out

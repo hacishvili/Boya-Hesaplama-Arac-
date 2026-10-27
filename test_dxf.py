@@ -130,6 +130,54 @@ class Iki(unittest.TestCase):
         self.assertEqual(dxf_oku.birim_uyarisi(400.0), "")
 
 
+class Dwg(unittest.TestCase):
+    def setUp(self):
+        self.klasor = tempfile.mkdtemp()
+        self.dwg = os.path.join(self.klasor, "ayak.dwg")
+        with open(self.dwg, "wb") as f:
+            f.write(b"AC1032" + b"\0" * 100)
+
+    def tearDown(self):
+        shutil.rmtree(self.klasor, ignore_errors=True)
+
+    def test_oda_yoksa_acik_uyari(self):
+        eski = dict(os.environ)
+        try:
+            for k in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+                os.environ[k] = self.klasor
+            os.environ["PATH"] = self.klasor
+            with self.assertRaises(dxf_oku.DwgHatasi) as h:
+                dxf_oku.belge_ac(self.dwg)
+            self.assertIn(dxf_oku.ODA_INDIR, str(h.exception))
+        finally:
+            os.environ.clear()
+            os.environ.update(eski)
+
+    def test_oda_ile_donusturur(self):
+        from ezdxf.addons import odafc
+        exe = os.path.join(self.klasor, "ODA", "ODAFileConverter 26.4.0", "ODAFileConverter.exe")
+        os.makedirs(os.path.dirname(exe))
+        open(exe, "w").close()
+        eski_ortam, eski_oku = dict(os.environ), odafc.readfile
+        cagri = {}
+
+        def sahte(yol, version=None, audit=False):
+            cagri.update(yol=yol, version=version, exe=ezdxf.options.get("odafc-addon", "win_exec_path" if os.name ==
+                                                                          "nt" else "unix_exec_path"))
+            return yeni()
+        try:
+            os.environ["ProgramFiles"] = self.klasor
+            self.assertEqual(dxf_oku.oda_bul(), exe)
+            odafc.readfile = sahte
+            doc = dxf_oku.belge_ac(self.dwg)
+        finally:
+            odafc.readfile = eski_oku
+            os.environ.clear()
+            os.environ.update(eski_ortam)
+        self.assertEqual(cagri, {"yol": self.dwg, "version": "R2010", "exe": exe})
+        self.assertEqual(doc.dxfversion, "AC1032")
+
+
 class Uc(unittest.TestCase):
     def setUp(self):
         self.klasor = tempfile.mkdtemp()
@@ -162,24 +210,6 @@ class Uc(unittest.TestCase):
         self.assertEqual(alanlar, [24.0, 54.0, 96.0, 600.0, 16000.0])
         self.assertTrue(all(g.kapali and not g.hata for g in s.govdeler))
         self.assertEqual(s.parcalar, [])
-
-    def test_egri_yuzlu_kati_hata_verir(self):
-        doc = yeni()
-        k = doc.modelspace().add_3dsolid()
-        acis.export_dxf(k, [acis.body_from_mesh(forms.cube().scale(10, 10, 10))])
-        bodies = acis.load_dxf(k)
-        # bir yüzü eğri yüz gibi göster: ezdxf'in okuyamadığı yüzey türü
-        yuz = bodies[0].lump.shell.face.next_face
-        yuz.surface.type = "cone-surface"
-        asil = acis.load_dxf
-        acis.load_dxf = lambda e: bodies
-        try:
-            g = dxf_oku.acis_govdeleri(k, "Katı", 1.0)
-        finally:
-            acis.load_dxf = asil
-        self.assertEqual(len(g), 1)
-        self.assertIn("eğri", g[0].hata)
-        self.assertEqual(g[0].alan, 0.0)
 
 
 if __name__ == "__main__":

@@ -1,2 +1,2 @@
 # -*- coding: utf-8 -*-
-SURUM = "0.1.0"
+SURUM = "0.2.0"
