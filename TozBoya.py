@@ -12,6 +12,9 @@ def kendini_dene() -> int:
     import math
     import tempfile
 
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):  # pencereli pakette stdout yok
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication(sys.argv)

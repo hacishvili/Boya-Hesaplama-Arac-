@@ -24,7 +24,16 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s . -p "test_*.py" -v
       - name: Paket
-        run: python paketle.py
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # başarısızsa günlüğün sonu hata notu olarak da yazılır (iş günlüğü indirilemeyen yerlerden okunabilsin)
+        run: |
+          set -o pipefail
+          python paketle.py 2>&1 | tee paket.log || {
+            echo "::error title=Paket::$(tail -n 40 paket.log | tr -d '\r' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
+            exit 1
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: TozBoyaHesap-windows

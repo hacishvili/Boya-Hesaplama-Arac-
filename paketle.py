@@ -22,6 +22,10 @@ GEREKSIZ = ["matplotlib", "tkinter", "PIL", "lxml", "yaml", "ezdxf.addons", "IPy
 
 
 def main() -> int:
+    # Windows konsolu (cp1252 / cp857) Türkçe harfleri yazamayıp çökmesin
+    for akis in (sys.stdout, sys.stderr):
+        if akis is not None and hasattr(akis, "reconfigure"):
+            akis.reconfigure(encoding="utf-8", errors="replace")
     os.chdir(KOK)
     for k in ("build", os.path.join("dist", AD)):
         shutil.rmtree(k, ignore_errors=True)
