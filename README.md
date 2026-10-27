@@ -32,6 +32,8 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
 
 - **Çizim ekle (DXF / DWG / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
   parçaları siz seçersiniz. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
+  - **Büküm çizgisi (kırmızı):** rengi kırmızı (AutoCAD renk 1) olan çizgiler alınmaz; pencerede kapatılabilir.
+    Kontura değen çizgiler (büküm çizgisi) varsa dış sınır parça, içindeki kapalı şekiller (delik, boşaltma) delik olur.
   - **2D açınımlar:** iki yüz ve kesim kenarları (çevre × kalınlık) boyanır. Sac kalınlığı çizimden okunur:
     yazıdaki "t=2", "S: 1,5", "kalınlık 2 mm", "2 mm DKP"; katman adındaki "2MM", "T1.5" (o katmanın parçaları);
     dosya adındaki "..._2mm". Bulunamazsa girilir. Her parçaya ayrı da girilebilir (tablodaki "Sac kalınlığı"

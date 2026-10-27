@@ -181,6 +181,9 @@ class IceAktar(QDialog):
                                  "değiştirilebilir. Kenar alanı = çevre × kalınlık")
         self.kalinliklar: Dict[tuple, float] = {}  # parça anahtarı → sac kalınlığı (yeniden okumada korunur)
         self.kesikli = QCheckBox("Kesikli çizgileri de al (eksen, gizli, büküm)")
+        self.kirmizi = QCheckBox("Kırmızı çizgileri (büküm çizgisi) alma")
+        self.kirmizi.setChecked(True)
+        self.kirmizi.setToolTip("Rengi kırmızı (AutoCAD renk 1) olan çizgiler büküm çizgisi sayılır ve konturlara katılmaz")
         self.topla = QCheckBox("Aynı parçaları tek satırda topla (adet olarak)")
         self.topla.setChecked(True)
         self.topla.setToolTip("Alanı, ölçüleri (ve 2D'de kalınlığı) aynı olan parçalar tek kalem olur; adet kopya sayısıdır")
@@ -195,6 +198,7 @@ class IceAktar(QDialog):
             form.addRow("Sac kalınlığı (2D, tümü)", self._kal_satir)
             form.addRow("", self._kal_bilgi)
             form.addRow("", self.kesikli)
+            form.addRow("", self.kirmizi)
         self._form = form
         form.addRow("", self.topla)
         self.katmanlar = QListWidget()
@@ -245,6 +249,7 @@ class IceAktar(QDialog):
         self._katman_ilk = True
         self.birim.currentIndexChanged.connect(self.cozumle)
         self.kesikli.toggled.connect(self.cozumle)
+        self.kirmizi.toggled.connect(self.cozumle)
         self.katmanlar.itemChanged.connect(self.cozumle)
         self.kalinlik.valueChanged.connect(self._kalinlik_tumu)
         self.cozumle()
@@ -271,7 +276,8 @@ class IceAktar(QDialog):
         else:
             haric = [self.katmanlar.item(i).text() for i in range(self.katmanlar.count())
                      if self.katmanlar.item(i).checkState() != Qt.Checked]
-            s = dxf_oku.cozumle(self.doc, olcek, haric, self.kesikli.isChecked())
+            s = dxf_oku.cozumle(self.doc, olcek, haric, self.kesikli.isChecked(),
+                                 kirmizi_haric=self.kirmizi.isChecked())
             self.sonuc = s
             if self._katman_ilk:
                 self._katman_ilk = False

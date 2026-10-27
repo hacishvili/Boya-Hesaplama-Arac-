@@ -91,6 +91,22 @@ class Arayuz(unittest.TestCase):
         w._yenile()
         self.assertIn("PDF taslağı", w.tablo.item(1, 1).text())
 
+    def test_ice_aktar_kirmizi_secenegi(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        for a, b in [((0, 0), (100, 0)), ((100, 0), (100, 50)), ((100, 50), (0, 50)), ((0, 50), (0, 0))]:
+            m.add_line(a, b)
+        m.add_line((0, 0), (100, 0), dxfattribs={"color": 1})   # üst üste kırmızı büküm çizgisi
+        yol = os.path.join(self.klasor, "kirmizi.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        self.assertTrue(d.kirmizi.isChecked())
+        self.assertEqual(d.sonuc.kirmizi, 1)
+        d.kirmizi.setChecked(False)
+        self.assertEqual(d.sonuc.kirmizi, 0)
+
     def test_ice_aktar_ve_duzenle(self):
         doc = ezdxf.new("R2018")
         doc.header["$INSUNITS"] = 4

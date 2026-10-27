@@ -2,7 +2,7 @@
 """DXF okuma: birim, katmanlar, 2D kapalı konturlar (parça + delik) ve 3D gövdeler.
 
 2D: çizgi, yay, daire, elips, spline, polyline. Kapalı olanlar doğrudan kontur; açık parçalar uç uca
-eklenir (geometri.zincirle). Kesikli çizgi tipleri (eksen, gizli, büküm çizgisi) varsayılan olarak alınmaz.
+eklenir (geometri.zincirle). Kesikli çizgi tipleri (eksen, gizli, büküm çizgisi) ve kırmızı çizgiler (büküm) varsayılan olarak alınmaz.
 Ölçü, yazı, tarama ve benzeri çizim öğeleri alana girmez.
 
 3D: 3DFACE, POLYFACE / POLYMESH, MESH ağları; 3DSOLID / BODY / REGION / SURFACE (ACIS katı): düzlem, silindir,
@@ -62,6 +62,7 @@ class DxfSonuc:
     govdeler: List[Govde3D] = field(default_factory=list)
     atlanan: Counter = field(default_factory=Counter)        # alana girmeyen öğe türleri
     etiketli: int = 0              # K:/P: etiketi bir parçaya bağlanan yazı sayısı
+    kirmizi: int = 0               # alınmayan kırmızı çizgi sayısı (büküm çizgisi)
     kesikli: int = 0               # alınmayan kesikli çizgi sayısı
     kullanilamayan: int = 0        # kontur kapatmayan açık çizgi sayısı
     uyarilar: List[str] = field(default_factory=list)
@@ -175,6 +176,20 @@ def _etiketleri_bagla(parcalar: List[Parca2D], etiketler: List[Tuple[float, floa
     return bagli
 
 
+def _kirmizi_mi(e, doc) -> bool:
+    """Çizgi kırmızı mı (büküm çizgisi): AutoCAD rengi 1, katmandan gelen renk 1 ya da kırmızıya yakın RGB."""
+    tc = e.dxf.get("true_color")
+    if tc is not None:
+        r, g, b = (int(tc) >> 16) & 255, (int(tc) >> 8) & 255, int(tc) & 255
+        return r >= 200 and g <= 60 and b <= 60
+    renk = int(e.dxf.get("color", 256))
+    if renk == 256:  # katmandan
+        ad = e.dxf.get("layer", "0")
+        katman = doc.layers.get(ad) if doc is not None and ad in doc.layers else None
+        renk = abs(int(katman.dxf.get("color", 7))) if katman is not None else 7
+    return renk == 1
+
+
 def _ozyinelemeli(alan, sayac: Counter, derinlik: int = 0):
     """Blokları (INSERT) açarak öğeleri verir; ölçü, açıklama ve benzeri blok gibi açılmaz, sayılıp atlanır."""
     for e in alan:
@@ -247,8 +262,9 @@ def _cizgi_noktalari(e, sapma: float):
 
 
 def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesikli_al: bool = False,
-            tol_mm: float = 0.01) -> DxfSonuc:
-    """doc: ezdxf belgesi. olcek: çizim birimi → mm (None: $INSUNITS). haric: alınmayacak katmanlar."""
+            tol_mm: float = 0.01, kirmizi_haric: bool = True) -> DxfSonuc:
+    """doc: ezdxf belgesi. olcek: çizim birimi → mm (None: $INSUNITS). haric: alınmayacak katmanlar.
+    kirmizi_haric: kırmızı (renk 1) 2B çizgiler büküm çizgisi sayılıp alınmaz."""
     from ezdxf.render import MeshBuilder
 
     kod = int(doc.header.get("$INSUNITS", 0) or 0)
@@ -310,6 +326,9 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
             continue
 
         # 2D eğri
+        if kirmizi_haric and _kirmizi_mi(e, doc):
+            s.kirmizi += 1
+            continue
         if not kesikli_al and _kesikli_mi(e, doc):
             s.kesikli += 1
             continue
@@ -348,6 +367,8 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
     if s.kullanilamayan:
         s.uyarilar.append(f"{s.kullanilamayan} açık çizgi kapalı bir kontura bağlanamadı ve alınmadı "
                           f"(büküm çizgisi, eksen ya da uçları {tol_mm} mm'den uzak çizgiler).")
+    if s.kirmizi:
+        s.uyarilar.append(f"{s.kirmizi} kırmızı çizgi (büküm çizgisi) alınmadı.")
     if kod == 0:
         s.uyarilar.append("Dosyada birim yazmıyor; mm sayıldı. Gerekirse birimi değiştirin.")
     olculer = [max(p.olcu) for p in s.parcalar]

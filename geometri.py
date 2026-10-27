@@ -138,6 +138,67 @@ def yerlestir(konturlar: Iterable[Kontur]) -> List[Parca2D]:
     return [parcalar[i] for i in sorted(parcalar)]
 
 
+def _yon(pts: Sequence[Nokta], bastan: bool) -> float:
+    """Çizginin bir ucundaki yön açısı (uçtan içeri doğru); sıfır uzunluklu parçalar atlanır."""
+    sira = pts if bastan else pts[::-1]
+    for q in sira[1:]:
+        if math.dist(q, sira[0]) > 1e-9:
+            return math.atan2(q[1] - sira[0][1], q[0] - sira[0][0])
+    return 0.0
+
+
+def _dis_sinir(bilesen: List[int], kenarlar, komsu, canli_bilesen) -> Optional[Tuple[List[Nokta], int]]:
+    """Düğümlerde 3+ çizgi birleşen bağlı bir çizgi ağının dış sınırı (düzlemsel ağın sınırsız yüzü).
+    Dönüş: (kontur noktaları, konturda kullanılan çizgi sayısı) ya da çözülemezse None.
+    İçerideki çizgiler (kontura değen büküm çizgisi) konturda yer almaz. Dış yürüyüş aynı çizgiden iki kez
+    geçiyorsa (iki şekli birleştiren köprü) çözülemez sayılır."""
+    giden: Dict[int, List[Tuple[float, int]]] = {}   # düğüm → (açı, yarım kenar); yarım kenar 2e: a→b, 2e+1: b→a
+    for e in bilesen:
+        a, b, pts = kenarlar[e]
+        giden.setdefault(a, []).append((_yon(pts, True), 2 * e))
+        giden.setdefault(b, []).append((_yon(pts, False), 2 * e + 1))
+    for n in giden:
+        giden[n].sort()
+
+    def hedef(h: int) -> int:
+        a, b, _ = kenarlar[h // 2]
+        return b if h % 2 == 0 else a
+
+    def sonraki(h: int) -> int:
+        v = hedef(h)
+        liste = giden[v]
+        i = next(k for k, (_, x) in enumerate(liste) if x == (h ^ 1))
+        return liste[i - 1][1]          # ikizinden saat yönünde ilk çizgi: yüz hep solda kalır
+
+    def noktalar(h: int) -> List[Nokta]:
+        pts = kenarlar[h // 2][2]
+        return list(pts) if h % 2 == 0 else list(reversed(pts))
+
+    gorulen = set()
+    disari = []
+    for e in bilesen:
+        for h0 in (2 * e, 2 * e + 1):
+            if h0 in gorulen:
+                continue
+            yuruyus, h = [], h0
+            while h not in gorulen:
+                gorulen.add(h)
+                yuruyus.append(h)
+                h = sonraki(h)
+            yol: List[Nokta] = []
+            for k in yuruyus:
+                yol.extend(noktalar(k)[1:] if yol else noktalar(k))
+            if isaretli_alan(yol) < 0:
+                disari.append((yuruyus, yol))
+    if len(disari) != 1:
+        return None
+    yuruyus, yol = disari[0]
+    edgeler = [h // 2 for h in yuruyus]
+    if len(set(edgeler)) != len(edgeler):
+        return None
+    return yol, len(edgeler)
+
+
 def zincirle(parcalar: Sequence[Sequence[Nokta]], tol: float = 0.01) -> Tuple[List[List[Nokta]], int]:
     """Açık çizgileri (çizgi, yay, açık polyline) uçlarından birleştirip kapalı konturlar yapar.
     Dönüş: (konturlar, kullanılamayan çizgi sayısı). Bir konturun ortasına değen ya da boşta kalan
@@ -215,7 +276,13 @@ def zincirle(parcalar: Sequence[Sequence[Nokta]], tol: float = 0.01) -> Tuple[Li
         for e in bilesen:
             canli[e] = False
         if any(sum(1 for e in komsu[n] if e in canli_bilesen) != 2 for n in dugumler):
-            cozulemeyen += len(bilesen)
+            # düğümde 3+ çizgi (kontura değen büküm çizgisi gibi): bileşenin dış sınırı alınır, içeridekiler atılır
+            dis = _dis_sinir(bilesen, kenarlar, komsu, canli_bilesen)
+            if dis is None:
+                cozulemeyen += len(bilesen)
+            else:
+                konturlar.append(dis[0])
+                cozulemeyen += len(bilesen) - dis[1]
             continue
         # tek döngü: yürü
         e0 = bilesen[0]

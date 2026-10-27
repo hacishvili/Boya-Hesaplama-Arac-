@@ -85,6 +85,61 @@ class Iki(unittest.TestCase):
         self.assertEqual(dxf_oku.etiket_oku("k:2 p:x y m:1"), (2.0, "x y"))
         self.assertEqual(dxf_oku.etiket_oku("SK:3 6 mm 1 ad"), (None, ""))
 
+    def test_kirmizi_cizgiler_burkum_sayilir(self):
+        # renk 1, katmandan kırmızı ve RGB kırmızı çizgiler alınmaz; seçenek kapatılınca alınır
+        doc = yeni()
+        doc.layers.add("BUKUM", color=1)
+        m = doc.modelspace()
+        for a, b in [((0, 0), (100, 0)), ((100, 0), (100, 50)), ((100, 50), (0, 50)), ((0, 50), (0, 0))]:
+            m.add_line(a, b)
+        m.add_line((0, 25), (100, 25), dxfattribs={"color": 1})
+        m.add_line((50, 0), (50, 50), dxfattribs={"layer": "BUKUM"})
+        m.add_line((25, 0), (25, 50), dxfattribs={"true_color": 0xFF0000})
+        m.add_line((75, 0), (75, 50), dxfattribs={"color": 3})                # yeşil: kırmızı değil
+        s = self.oku(doc)
+        self.assertEqual(s.kirmizi, 3)
+        self.assertEqual(len(s.parcalar), 1)
+        self.assertAlmostEqual(s.parcalar[0].yuz_alani, 5000, places=6)
+        self.assertTrue(any("kırmızı" in u for u in s.uyarilar))
+        t = self.oku(doc, kirmizi_haric=False)
+        self.assertEqual(t.kirmizi, 0)
+
+    def test_burkum_cizgisi_kontura_degerse_dis_kontur_bulunur(self):
+        # üstte plaka + altta daralan gövde; ikisini ayıran büküm çizgisi dış çizginin köşelerinde biter (T düğümü).
+        # İçindeki üçgen boşaltma ve daire parça değil delik olmalı.
+        doc = yeni()
+        m = doc.modelspace()
+        dis = [(0, 65), (95, 65), (95, 0), (75, -190), (20, -190), (0, 0)]
+        for i, p in enumerate(dis):
+            m.add_line(p, dis[(i + 1) % len(dis)])
+        m.add_line((0, 0), (95, 0))                       # büküm çizgisi
+        ucgen = [(30, -20), (65, -20), (47.5, -120)]
+        for i, p in enumerate(ucgen):
+            m.add_line(p, ucgen[(i + 1) % 3])
+        m.add_circle((47.5, 30), 5.5)
+        s = self.oku(doc)
+        self.assertEqual(len(s.parcalar), 1)
+        p = s.parcalar[0]
+        self.assertEqual(len(p.delikler), 2)
+        import geometri
+        dis_alan = abs(geometri.isaretli_alan(dis))
+        ucgen_alan = abs(geometri.isaretli_alan(ucgen))
+        self.assertAlmostEqual(p.yuz_alani, dis_alan - ucgen_alan - math.pi * 5.5 ** 2, places=3)
+        self.assertEqual(s.kullanilamayan, 1)             # yalnız büküm çizgisi
+
+    def test_koprulu_iki_sekil_cozulemez_sayilir(self):
+        # iki kare, aralarında tek çizgilik köprü: dış sınır iki kez köprüden geçer; uydurma kontur verilmez
+        doc = yeni()
+        m = doc.modelspace()
+        for x0 in (0, 200):
+            k = [(x0, 0), (x0 + 50, 0), (x0 + 50, 50), (x0, 50)]
+            for i, p in enumerate(k):
+                m.add_line(p, k[(i + 1) % 4])
+        m.add_line((50, 0), (200, 0))
+        s = self.oku(doc)
+        self.assertEqual(len(s.parcalar), 0)
+        self.assertGreaterEqual(s.kullanilamayan, 9)
+
     def test_yayli_polyline(self):
         # 100 × 60 dikdörtgen, köşeleri r = 10 yaylı (bulge)
         r, a, b = 10.0, 100.0, 60.0

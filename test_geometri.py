@@ -45,11 +45,20 @@ class Zincir(unittest.TestCase):
         self.assertAlmostEqual(Kontur(konturlar[0]).alan, 5000.0, delta=0.5)
         self.assertEqual(atilan, 2)
 
-    def test_dallanan_cozulmez(self):
+    def test_dallanan_dis_siniri_alinir(self):
+        # ortak kenarlı iki üçgen: dış sınır (büyük üçgen) alınır, içteki ortak çizgi atılır
         kenar = [[(0, 0), (10, 0)], [(10, 0), (10, 10)], [(10, 10), (0, 0)], [(10, 0), (20, 0)], [(20, 0), (10, 10)]]
         konturlar, atilan = zincirle(kenar)
+        self.assertEqual(len(konturlar), 1)
+        self.assertAlmostEqual(Kontur(konturlar[0]).alan, 100.0, places=6)
+        self.assertEqual(atilan, 1)
+
+    def test_koprulu_sekiller_cozulmez(self):
+        # iki kare ve köşelerini bağlayan tek çizgi: dış yürüyüş köprüden iki kez geçer; kontur uydurulmaz
+        kare = lambda x: [[(x, 0), (x + 10, 0)], [(x + 10, 0), (x + 10, 10)], [(x + 10, 10), (x, 10)], [(x, 10), (x, 0)]]
+        konturlar, atilan = zincirle(kare(0) + kare(50) + [[(10, 0), (50, 0)]])
         self.assertEqual(konturlar, [])
-        self.assertEqual(atilan, 5)
+        self.assertEqual(atilan, 9)
 
 
 class Ag3D(unittest.TestCase):
