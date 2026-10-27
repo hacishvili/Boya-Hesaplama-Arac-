@@ -57,6 +57,7 @@ class Profil:
     uc: float = 0.0
     ic: List[Tuple[float, float]] = field(default_factory=list)   # iç yüzler: (alan, eksen boyu)
     bosluk: float = 0.0               # boşluğun en büyük kesit ölçüsü (iç boya derinliği varsayılanı)
+    koni: Optional[Dict] = None       # dış yüzü koni / silindirse açınım ölçüleri: d1, d2 (dış), boy, t
 
     @property
     def ic_alan(self) -> float:
@@ -68,7 +69,7 @@ class Profil:
 
     def sozluk(self) -> Dict:
         return {"boy": self.boy, "kesit": list(self.kesit), "dis": self.dis, "uc": self.uc,
-                "ic": [list(x) for x in self.ic], "bosluk": self.bosluk}
+                "ic": [list(x) for x in self.ic], "bosluk": self.bosluk, "koni": self.koni}
 
 
 def profil_alani(p: Dict, ic_boya: str, derinlik: float, uc_boya: bool) -> float:
@@ -194,6 +195,8 @@ def coz(yuzler: Sequence[YuzBilgi], oran: float = 2.5) -> Optional[Profil]:
     if delikler:
         pr.bosluk = max(max(d.kutu[2] - d.kutu[0], d.kutu[3] - d.kutu[1]) for d in delikler)
     daire_yuz = {i for i, _ in daireler}
+    ic_koni: List[YuzBilgi] = []
+    dis_koni: List[YuzBilgi] = []
     for i, y in enumerate(yuzler):
         if i in iz:
             if i in daire_yuz:
@@ -206,13 +209,40 @@ def coz(yuzler: Sequence[YuzBilgi], oran: float = 2.5) -> Optional[Profil]:
             if ic:
                 ss = [_ic(q, a) for d in y.donguler for q in d]
                 pr.ic.append((y.alan, (max(ss) - min(ss)) if ss else boy))
+                ic_koni.append(y)
             else:
                 pr.dis += y.alan
+                dis_koni.append(y)
         elif y.tur == "duzlem" and y.normal is not None and abs(_ic(y.normal, a)) > 0.2:
             pr.uc += y.alan
         else:
             pr.dis += y.alan
+    pr.koni = _koni_olculeri([y for y in dis_koni if y.tur == "koni"], [y for y in ic_koni if y.tur == "koni"])
     return pr
+
+
+def _koni_olculeri(dis: List[YuzBilgi], ic: List[YuzBilgi]) -> Optional[Dict]:
+    """En büyük dış koni / silindir yüzünün uçlarındaki çaplar ve eksen boyu; eş eksenli iç yüz varsa sac
+    kalınlığı (yarıçap farkı · cos α)."""
+    adaylar = [y for y in dis if y.eksen is not None and y.merkez is not None and y.donguler]
+    if not adaylar:
+        return None
+    y = max(adaylar, key=lambda y: y.alan)
+    hh = [_ic(_cik(q, y.merkez), y.eksen) for d in y.donguler for q in d]
+    h0, h1 = min(hh), max(hh)
+    rho = lambda yz, h: yz.r0 + yz.egim * h
+    sonuc = {"d1": 2 * rho(y, h0), "d2": 2 * rho(y, h1), "boy": h1 - h0, "t": None}
+    for z in ic:
+        if z.eksen is None or z.merkez is None or abs(abs(_ic(z.eksen, y.eksen)) - 1) > 1e-6:
+            continue
+        orta = 0.5 * (h0 + h1)
+        p = tuple(y.merkez[i] + orta * y.eksen[i] for i in range(3))  # dış yüzün ekseninde, ortada
+        hz = _ic(_cik(p, z.merkez), z.eksen)
+        fark = rho(y, orta) - rho(z, hz)
+        if fark > 0:
+            sonuc["t"] = fark / math.sqrt(1 + y.egim ** 2)
+            break
+    return sonuc
 
 
 # ---------------------------------------------------------------- sac
