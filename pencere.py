@@ -201,6 +201,12 @@ class IceAktar(QDialog):
             form.addRow("", self.kirmizi)
         self._form = form
         form.addRow("", self.topla)
+        self.birlestir = QCheckBox("3D gövdeleri parçalara bölmeden tek parça olarak al (alanlar toplanır)")
+        self.birlestir.setToolTip("Seçili bütün 3D gövdelerin boyanacak alanı toplanıp tek kalem olur; her gövdenin "
+                                  "adedi alanına çarpılır. Hesaplanamayan gövde toplama girmez.")
+        self.birlestir.setEnabled(False)
+        self.birlestir.toggled.connect(self._uyari_yenile)
+        form.addRow("", self.birlestir)
         self.katmanlar = QListWidget()
         self.katmanlar.setMaximumHeight(130)
         if not self.stl:
@@ -316,8 +322,18 @@ class IceAktar(QDialog):
                 uyarilar.append("Alana girmeyen öğeler: " + ", ".join(f"{k} ×{v}" for k, v in atlanan.items()))
         if not self.ogeler:
             uyarilar.insert(0, "Dosyada alan hesaplanabilecek kapalı kontur ya da 3D gövde bulunamadı.")
-        self.uyari.setText("\n".join(uyarilar))
+        self._uyari_taban = "\n".join(uyarilar)
         self._tabloyu_doldur()
+        self._uyari_yenile()
+
+    def _uyari_yenile(self, *_):
+        """Uyarı yazısı: çözümleme uyarıları; birleştirme açıkken hesaplanamayan gövde varsa toplamın eksik kalacağı."""
+        metin = self._uyari_taban
+        hatali = sum(1 for t, _g, _k, _a, h in self.ogeler if t == "3d" and h)
+        if self.birlestir.isChecked() and hatali:
+            metin += ("\n" if metin else "") + (f"{hatali} 3D gövde hesaplanamadı; tek parça toplamına girmez, "
+                                                "toplam eksik olur.")
+        self.uyari.setText(metin)
 
     @staticmethod
     def _anahtar(p: Parca2D) -> tuple:
@@ -419,6 +435,7 @@ class IceAktar(QDialog):
             iki_d = any(t == "2d" for t, *_ in self.ogeler)
             self._form.setRowVisible(self._kal_satir, iki_d)
             self._form.setRowVisible(self._kal_bilgi, iki_d)
+        self.birlestir.setEnabled(sum(1 for t, _, k, *_ in self.ogeler if t == "3d" and k) >= 2)
         self.rapor_dugmesi.setVisible(any(h for *_, h in self.ogeler))
         self.tablo.resizeColumnsToContents()
         if self.ogeler and not self.tablo.selectedItems():
@@ -468,12 +485,34 @@ class IceAktar(QDialog):
         return (all(abs(p - q) <= max(0.05, 1e-6 * abs(p)) for p, q in zip(x[:-3], y[:-3]))
                 and all(abs(p - q) <= 0.05 for p, q in zip(x[-3:], y[-3:])) and len(x) == len(y))
 
+    def _birlesik_kalem(self, satirlar: List[int]) -> Kalem:
+        """Seçili 3D gövdeler tek kalem: adet başına alan = Σ (gövde alanı × gövde adedi); adet 1."""
+        toplam, kapali, geolar = 0.0, True, []
+        for r in satirlar:
+            _, geo, kaynak, _, _ = self.ogeler[r]
+            toplam += kaynak_alani(kaynak) * self.tablo.cellWidget(r, 5).value()
+            kapali = kapali and bool(kaynak.get("kapali", True))
+            if isinstance(geo, Ag) and geo.yuzler:
+                geolar.append(geo)
+        kaynak = {"tur": "3d", "alan": toplam, "kapali": kapali, "katsayi": 1.0,
+                  "varlik": f"birleşik, {len(satirlar)} gövde"}
+        k = Kalem(self.dosya_adi, kaynak, toz=self.toz, dosya=self.yol)
+        k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi) if geolar else None
+        return k
+
     def kalemler(self) -> List[Kalem]:
         out: List[Kalem] = []
         gruplar: List[tuple] = []   # (seçenekler, sayılar, kalem)
+        uc_d = [r for r, (tur, _, kaynak, _, _) in enumerate(self.ogeler)
+                if tur == "3d" and kaynak is not None and self.tablo.item(r, 0).checkState() == Qt.Checked]
+        birlesik = self.birlestir.isChecked() and len(uc_d) >= 2
         for r, (tur, geo, kaynak, ad, hata) in enumerate(self.ogeler):
             it = self.tablo.item(r, 0)
             if kaynak is None or it.checkState() != Qt.Checked:
+                continue
+            if birlesik and tur == "3d":
+                if r == uc_d[0]:               # birleşik kalem ilk 3D gövdenin yerine girer
+                    out.append(self._birlesik_kalem(uc_d))
                 continue
             secenek, sayilar = self._imza(tur, geo, kaynak)
             adet = self.tablo.cellWidget(r, 5).value()

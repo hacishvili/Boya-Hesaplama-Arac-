@@ -32,6 +32,8 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
 
 - **Çizim ekle (DXF / DWG / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
   parçaları siz seçersiniz. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
+  - **3D gövdeleri tek parça al:** 3D çizimde birden çok gövde varsa pencerede bu kutu işaretlenince seçili gövdelerin
+    alanı toplanıp tek kalem olur (her gövdenin adedi alanına çarpılır). Hesaplanamayan gövde toplama girmez, uyarılır.
   - **Büküm çizgisi (kırmızı):** rengi kırmızı (AutoCAD renk 1) olan çizgiler alınmaz; pencerede kapatılabilir.
     Kontura değen çizgiler (büküm çizgisi) varsa dış sınır parça, içindeki kapalı şekiller (delik, boşaltma) delik olur.
   - **2D açınımlar:** iki yüz ve kesim kenarları (çevre × kalınlık) boyanır. Sac kalınlığı çizimden okunur:

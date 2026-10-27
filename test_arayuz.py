@@ -107,6 +107,45 @@ class Arayuz(unittest.TestCase):
         d.kirmizi.setChecked(False)
         self.assertEqual(d.sonuc.kirmizi, 0)
 
+    def _iki_kati(self):
+        from ezdxf.acis import api as acis
+        from ezdxf.render import forms
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        for olcu in ((100, 50, 20), (50, 50, 20)):       # alanlar 16000 ve 9000 mm²
+            kati = doc.modelspace().add_3dsolid()
+            acis.export_dxf(kati, [acis.body_from_mesh(forms.cube().scale(*olcu))])
+        yol = os.path.join(self.klasor, "iki_kati.dxf")
+        doc.saveas(yol)
+        return yol
+
+    def test_3d_govdeler_tek_parca_olabilir(self):
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(self._iki_kati(), w.ayar.tozlar[0].ad, w)
+        self.assertTrue(d.birlestir.isEnabled())
+        ayri = d.kalemler()                                # varsayılan: gövdeler ayrı kalem
+        self.assertEqual(sorted(round(k.kaynak["alan"]) for k in ayri), [9000, 16000])
+        d.birlestir.setChecked(True)
+        tek = d.kalemler()
+        self.assertEqual(len(tek), 1)
+        self.assertAlmostEqual(tek[0].kaynak["alan"], 25000, places=3)
+        self.assertEqual(tek[0].adet, 1)
+        self.assertIn("2 gövde", pencere.kaynak_aciklamasi(tek[0].kaynak))
+        d.tablo.cellWidget(0, 5).setValue(2)               # ilk gövdeden 2 adet: alanına çarpılır
+        self.assertAlmostEqual(d.kalemler()[0].kaynak["alan"], 2 * 16000 + 9000, places=3)
+        d.tablo.item(1, 0).setCheckState(pencere.Qt.Unchecked)   # tek gövde kalınca bölünmüş davranış
+        self.assertEqual(len(d.kalemler()), 1)
+        self.assertNotIn("birleşik", d.kalemler()[0].kaynak["varlik"])
+
+    def test_birlestir_tek_govdede_kapali(self):
+        doc = ezdxf.new("R2018")
+        doc.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        yol = os.path.join(self.klasor, "tek2d.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        self.assertFalse(d.birlestir.isEnabled())
+
     def test_ice_aktar_ve_duzenle(self):
         doc = ezdxf.new("R2018")
         doc.header["$INSUNITS"] = 4
