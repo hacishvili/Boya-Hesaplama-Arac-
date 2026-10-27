@@ -85,6 +85,8 @@ class Parca2D:
     """Bir dış kontur ve içindeki delikler (sac açınımı ya da levha)."""
     dis: Kontur
     delikler: List[Kontur] = field(default_factory=list)
+    ad: str = ""                          # çizimdeki P:ad etiketinden
+    kalinlik: Optional[float] = None      # çizimdeki K:x etiketinden (mm)
 
     @property
     def yuz_alani(self) -> float:

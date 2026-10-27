@@ -43,6 +43,20 @@ class Arayuz(unittest.TestCase):
         yeni = d.kalemler()
         self.assertEqual(sorted(k.adet for k in yeni), [4, 7])
 
+    def test_ice_aktar_etiketten_ad_ve_kalinlik(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        m.add_mtext("K:4\\PP:ÖN PLAKA", dxfattribs={"insert": (50, 25)})
+        yol = os.path.join(self.klasor, "etiket.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        yeni = d.kalemler()
+        self.assertEqual(yeni[0].ad, "ÖN PLAKA")
+        self.assertAlmostEqual(yeni[0].kaynak["kalinlik"], 4.0)
+
     def test_ice_aktar_ve_duzenle(self):
         doc = ezdxf.new("R2018")
         doc.header["$INSUNITS"] = 4
@@ -151,6 +165,30 @@ class Arayuz(unittest.TestCase):
         d2 = pencere.IceAktar(yol2, "Polyester")
         self.assertEqual(d2.kalinlik.value(), 1.5)
         self.assertIn("dosya adından", d2.kalinlik_notu.text())
+
+    def test_adet_elle_degisir(self):
+        w = pencere.AnaPencere()
+        for i in range(3):
+            w.kalemler.append(pencere.Kalem(f"P{i}", {"tur": "elle", "alan_m2": 0.1}, toz=w.ayar.tozlar[0].ad))
+        w._yenile()
+        # tabloda Adet hücresi düzenlenebilir, öbürleri değil
+        self.assertTrue(w.tablo.item(0, 2).flags() & pencere.Qt.ItemIsEditable)
+        self.assertFalse(w.tablo.item(0, 3).flags() & pencere.Qt.ItemIsEditable)
+        w.tablo.item(1, 2).setText("12")
+        self.assertEqual(w.kalemler[1].adet, 12)
+        w.tablo.item(1, 2).setText("abc")      # geçersiz: eski değer kalır
+        self.assertEqual(w.kalemler[1].adet, 12)
+        self.assertEqual(w.tablo.item(1, 2).text(), "12")
+        w.tablo.item(1, 2).setText("0")
+        self.assertEqual(w.kalemler[1].adet, 12)
+        self.assertIn("<b>14</b> adet", w.toplam.text())   # 1 + 12 + 1
+        # çoklu seçimde hepsine birden
+        w.tablo.selectRow(0)
+        w.tablo.setRangeSelected(pencere.QTableWidgetSelectionRange(0, 0, 2, len(pencere.SUTUNLAR) - 1), True)
+        sp = next(x for x in w.ayrinti_alan.widget().findChildren(pencere.QSpinBox))
+        sp.setValue(5)
+        self.assertEqual([k.adet for k in w.kalemler], [5, 5, 5])
+        self.assertEqual(w.tablo.item(2, 2).text(), "5")
 
     def test_coklu_secimle_toz(self):
         w = pencere.AnaPencere()

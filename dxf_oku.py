@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from geometri import Ag, Kontur, Parca2D, yerlestir, zincirle
+from geometri import Ag, Kontur, Parca2D, icinde_mi, yerlestir, zincirle
 
 # $INSUNITS → mm (0: birimsiz; mm sayılır, pencere sorar)
 BIRIMLER: Dict[int, Tuple[str, float]] = {
@@ -60,6 +61,7 @@ class DxfSonuc:
     parcalar: List[Parca2D] = field(default_factory=list)
     govdeler: List[Govde3D] = field(default_factory=list)
     atlanan: Counter = field(default_factory=Counter)        # alana girmeyen öğe türleri
+    etiketli: int = 0              # K:/P: etiketi bir parçaya bağlanan yazı sayısı
     kesikli: int = 0               # alınmayan kesikli çizgi sayısı
     kullanilamayan: int = 0        # kontur kapatmayan açık çizgi sayısı
     uyarilar: List[str] = field(default_factory=list)
@@ -132,6 +134,45 @@ def _kesikli_mi(e, doc) -> bool:
         return any(abs(float(x)) > 0.0 for x in tip.simplified_line_pattern())
     except (AttributeError, TypeError, ValueError):
         return True
+
+
+_K_ETIKET = re.compile(r"(?<![A-Za-z0-9])K\s*:\s*(\d+(?:[.,]\d+)?)", re.I)
+_P_ETIKET = re.compile(r"(?<![A-Za-z0-9])P\s*:\s*(.+?)\s*(?=(?<=\s)[KMP]\s*:|$)", re.I | re.M)
+ETIKET_MESAFE_MM = 100.0   # yazı parçanın içinde değilse en yakın parça, en çok bu kadar uzaktaysa
+
+
+def etiket_oku(metin: str) -> Tuple[Optional[float], str]:
+    """Parça yazısı: 'K:6' sac kalınlığı (mm), 'P:ad' parça adı (satır sonuna ya da sonraki etikete kadar).
+    Örnek: 'M:0 / K:6 / P:NILLS KONSOL AYAK'. Dönüş: (kalınlık ya da None, ad ya da '')."""
+    k = _K_ETIKET.search(metin)
+    kalinlik = float(k.group(1).replace(",", ".")) if k else None
+    if kalinlik is not None and not 0.0 < kalinlik <= 100.0:
+        kalinlik = None
+    p = _P_ETIKET.search(metin)
+    return kalinlik, (p.group(1).strip() if p else "")
+
+
+def _etiketleri_bagla(parcalar: List[Parca2D], etiketler: List[Tuple[float, float, Optional[float], str]]) -> int:
+    """Yazıyı içinde bulunduğu (iç içeyse en küçük) parçaya, dışındaysa en yakın parçaya bağlar."""
+    bagli = 0
+    for x, y, kalinlik, ad in etiketler:
+        icerde = [p for p in parcalar if p.dis.kutu[0] <= x <= p.dis.kutu[2] and p.dis.kutu[1] <= y <= p.dis.kutu[3]
+                  and icinde_mi(x, y, p.dis.noktalar)]
+        if icerde:
+            hedef = min(icerde, key=lambda p: p.dis.alan)
+        else:
+            def uzak(p):
+                a = p.dis.kutu
+                return math.hypot(max(a[0] - x, 0.0, x - a[2]), max(a[1] - y, 0.0, y - a[3]))
+            hedef = min(parcalar, key=uzak, default=None)
+            if hedef is None or uzak(hedef) > ETIKET_MESAFE_MM:
+                continue
+        if kalinlik is not None and hedef.kalinlik is None:
+            hedef.kalinlik = kalinlik
+        if ad and not hedef.ad:
+            hedef.ad = ad
+        bagli += 1
+    return bagli
 
 
 def _ozyinelemeli(alan, sayac: Counter, derinlik: int = 0):
@@ -221,10 +262,16 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
     acik: List[List[Tuple[float, float]]] = []
     yuz3: Dict[str, List[List[Tuple[float, float, float]]]] = {}
     sayac = Counter()
+    etiketler: List[Tuple[float, float, Optional[float], str]] = []
 
     for e in _ozyinelemeli(doc.modelspace(), s.atlanan):
         tur = e.dxftype()
         katman = str(e.dxf.get("layer", "0"))
+        if tur in ("TEXT", "MTEXT") and katman.upper() not in haric_set:
+            kal, ad = etiket_oku(e.plain_text() if tur == "MTEXT" else str(e.dxf.get("text", "")))
+            if kal is not None or ad:
+                x, y = e.dxf.insert[0], e.dxf.insert[1]
+                etiketler.append((x * k, y * k, kal, ad))
         if tur in EGRI_TURLERI or tur in ACIS_TURLERI or tur in ("3DFACE", "MESH"):
             s.katmanlar[katman] = s.katmanlar.get(katman, 0) + 1
         else:
@@ -297,6 +344,7 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
         zincir, s.kullanilamayan = zincirle(acik, tol=tol_mm)
         kapali.extend(Kontur(z) for z in zincir)
     s.parcalar = yerlestir(kapali)
+    s.etiketli = _etiketleri_bagla(s.parcalar, etiketler)
     if s.kullanilamayan:
         s.uyarilar.append(f"{s.kullanilamayan} açık çizgi kapalı bir kontura bağlanamadı ve alınmadı "
                           f"(büküm çizgisi, eksen ya da uçları {tol_mm} mm'den uzak çizgiler).")

@@ -65,6 +65,26 @@ class Iki(unittest.TestCase):
         self.assertAlmostEqual(s.parcalar[0].yuz_alani, 20000, places=6)
         self.assertEqual(s.atlanan["3B tel çizgi"], 1)
 
+    def test_etiket_kalinlik_ve_ad(self):
+        # K:x sac kalınlığı, P:ad parça adı; yazı parçanın içinde ya da yakınında olabilir
+        doc = yeni()
+        m = doc.modelspace()
+        for x0, boy in [(0, 100), (300, 60)]:
+            m.add_lwpolyline([(x0, 0), (x0 + boy, 0), (x0 + boy, 50), (x0, 50)], close=True)
+        m.add_mtext("M:0\\PK:6\\PP:KONSOL AYAK", dxfattribs={"insert": (50, 25)})   # birinci parçanın içinde
+        m.add_mtext("K:1,5 P:SIKIŞTIRMA SACI", dxfattribs={"insert": (330, 70)})       # ikinci parçanın hemen üstünde
+        m.add_text("K:9 P:uzak").set_placement((5000, 5000))                             # hiçbir parçaya yakın değil
+        s = self.oku(doc)
+        self.assertEqual(s.etiketli, 2)
+        a, b = sorted(s.parcalar, key=lambda p: p.dis.kutu[0])
+        self.assertEqual((a.kalinlik, a.ad), (6.0, "KONSOL AYAK"))
+        self.assertEqual((b.kalinlik, b.ad), (1.5, "SIKIŞTIRMA SACI"))
+
+    def test_etiket_oku(self):
+        self.assertEqual(dxf_oku.etiket_oku("M:0\nK:6\nP:A B"), (6.0, "A B"))
+        self.assertEqual(dxf_oku.etiket_oku("k:2 p:x y m:1"), (2.0, "x y"))
+        self.assertEqual(dxf_oku.etiket_oku("SK:3 6 mm 1 ad"), (None, ""))
+
     def test_yayli_polyline(self):
         # 100 × 60 dikdörtgen, köşeleri r = 10 yaylı (bulge)
         r, a, b = 10.0, 100.0, 60.0

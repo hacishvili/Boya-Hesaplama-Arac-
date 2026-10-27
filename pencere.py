@@ -294,8 +294,10 @@ class IceAktar(QDialog):
                                   ic_derinlik=round(g.profil.bosluk, 1), uc_boya=True)
                 self.ogeler.append(("3d", g.ag, kaynak, ad, g.hata))
             for i, p in enumerate(s.parcalar):
-                ad = self.dosya_adi + (f" – parça {i + 1}" if len(s.parcalar) > 1 else "")
+                ad = p.ad or self.dosya_adi + (f" – parça {i + 1}" if len(s.parcalar) > 1 else "")
                 self.ogeler.append(("2d", p, self._kaynak2d(p), ad, ""))
+            if s.etiketli:
+                self.kalinlik_notu.setText(f"{s.etiketli} parça yazıdaki K: (kalınlık) / P: (ad) etiketinden okundu")
             uyarilar += s.uyarilar
             if s.kesikli:
                 uyarilar.append(f"{s.kesikli} kesikli çizgi alınmadı (eksen / gizli / büküm çizgisi).")
@@ -318,7 +320,7 @@ class IceAktar(QDialog):
         w, h = p.olcu
         return {"tur": "2d", "yuz_alani": p.yuz_alani, "cevre": p.toplam_cevre, "olcu": [w, h],
                 "delik": len(p.delikler),
-                "kalinlik": self.kalinliklar.get(self._anahtar(p),
+                "kalinlik": self.kalinliklar.get(self._anahtar(p), p.kalinlik if p.kalinlik is not None else
                                                  self.katman_kalinlik.get(p.dis.katman.upper(), self.kalinlik.value())),
                 "yuz_sayisi": 2, "kenar": True}
 
@@ -836,10 +838,12 @@ class AnaPencere(QMainWindow):
         self.tablo.setHorizontalHeaderLabels(SUTUNLAR)
         self.tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tablo.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Ctrl / Shift ile çoklu seçim
-        self.tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        # yalnız Adet sütunu elle düzenlenir (çift tık ya da F2); öbür hücrelerin düzenleme bayrağı kapalı
+        self.tablo.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.tablo.verticalHeader().hide()
         self.tablo.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tablo.itemSelectionChanged.connect(self._secim)
+        self.tablo.itemChanged.connect(self._adet_yazildi)
         sv.addWidget(self.tablo, 1)
         self.toplam = QLabel()
         self.toplam.setTextFormat(Qt.RichText)
@@ -946,7 +950,29 @@ class AnaPencere(QMainWindow):
             it = QTableWidgetItem(x)
             if c in (2, 3, 5, 6, 7, 8):
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if c != 2:
+                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+            else:
+                it.setToolTip("Çift tıklayıp adedi yazın")
             self.tablo.setItem(r, c, it)
+
+    def _adet_yazildi(self, it: QTableWidgetItem):
+        """Tabloda Adet hücresine elle yazılan sayı kalemin adedi olur; geçersizse eski değere döner."""
+        r = it.row()
+        if it.column() != 2 or not 0 <= r < len(self.kalemler):
+            return
+        try:
+            x = int(round(float(it.text().strip().replace(",", "."))))
+        except ValueError:
+            x = 0
+        if 1 <= x <= 10_000_000:
+            self.kalemler[r].adet = x
+            self._degisti()
+        self.tablo.blockSignals(True)
+        self._satir(r)
+        self.tablo.blockSignals(False)
+        self._toplam()
+        self._secim()
 
     def _toplam(self):
         try:
@@ -1021,6 +1047,20 @@ class AnaPencere(QMainWindow):
             self._coklu_sonrasi(satirlar, sonuc)
         toz.currentTextChanged.connect(toz_ata)
         f.addRow("Toz (hepsine)", toz)
+        adet = QSpinBox()
+        adet.setRange(1, 10_000_000)
+        adet.setValue(kalemler[0].adet if len({k.adet for k in kalemler}) == 1 else 1)
+        adet.setKeyboardTracking(False)
+        if len({k.adet for k in kalemler}) > 1:
+            adet.setToolTip("Adetler farklı; değer girerseniz seçili kalemlerin hepsine yazılır")
+
+        def adet_ata(x):
+            for r in satirlar:
+                self.kalemler[r].adet = x
+            self._coklu_sonrasi(satirlar, sonuc)
+            b.setTitle(f"{len(kalemler)} kalem seçili ({sum(k.adet for k in kalemler)} adet)")
+        adet.valueChanged.connect(adet_ata)
+        f.addRow("Adet (hepsine)", adet)
         if not self.ayar.pratik:
             kal = _cift(10.0, 1000.0, self.ayar.toz(kalemler[0].toz).kalinlik_um, 0, 5, "µm")
 
