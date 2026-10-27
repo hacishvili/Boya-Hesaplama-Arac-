@@ -273,7 +273,10 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
             continue
         if len(pts3) < 2:
             continue
-        if max(q.z for q in pts3) - min(q.z for q in pts3) > 1e-6 * max(1.0, abs(pts3[0].z)) + tol_mm / k:
+        dz = max(q.z for q in pts3) - min(q.z for q in pts3)
+        boy = max(max(q.x for q in pts3) - min(q.x for q in pts3), max(q.y for q in pts3) - min(q.y for q in pts3))
+        # düzleme çok az eğik çizilmiş öğe (Z farkı boyunun ~%0,5'inden az) 2B sayılır; gerçek 3B tel (dik çizgi ...) atlanır
+        if dz > 1e-6 * max(1.0, abs(pts3[0].z)) + tol_mm / k and dz > 0.005 * boy:
             s.atlanan["3B tel çizgi"] += 1
             continue
         pts = [(q.x * k, q.y * k) for q in pts3]

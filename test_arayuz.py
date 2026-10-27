@@ -27,6 +27,22 @@ class Arayuz(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.klasor, ignore_errors=True)
 
+    def test_ice_aktar_adet_secilebilir(self):
+        doc = ezdxf.new("R2018")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+        m.add_lwpolyline([(200, 0), (210, 0), (210, 10), (200, 10)], close=True)
+        yol = os.path.join(self.klasor, "adet.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        d.tablo.cellWidget(0, 5).setValue(4)
+        d.tablo.cellWidget(1, 5).setValue(7)
+        d._alanlari_yenile()  # kalınlık değişince tablo yenilenir: adetler korunmalı
+        yeni = d.kalemler()
+        self.assertEqual(sorted(k.adet for k in yeni), [4, 7])
+
     def test_ice_aktar_ve_duzenle(self):
         doc = ezdxf.new("R2018")
         doc.header["$INSUNITS"] = 4
@@ -108,7 +124,7 @@ class Arayuz(unittest.TestCase):
         doc.saveas(yol)
         d = pencere.IceAktar(yol, "Polyester")
         self.assertFalse(d.rapor_dugmesi.isHidden())
-        self.assertIn("exact_spl_sur", d.tablo.item(0, 5).toolTip())
+        self.assertIn("exact_spl_sur", d.tablo.item(0, 6).toolTip())
         metin = d.hata_raporu_metni()
         self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", metin)
         self.assertIn("{ exact_spl_sur 22600 full nubs 1 1", metin)

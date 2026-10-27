@@ -51,6 +51,20 @@ class Iki(unittest.TestCase):
         self.assertEqual(s.kullanilamayan, 0)
         self.assertIn("DIMENSION", s.atlanan)
 
+    def test_az_egik_cizgi_2b_sayilir(self):
+        # 3B görünümden alınmış gibi Z'si birkaç yüzde mm oynayan çizgiler: parça yine kapanmalı
+        doc = yeni()
+        m = doc.modelspace()
+        m.add_line((0, 0, 255.00), (200, 0, 255.04))
+        m.add_line((200, 0, 255.04), (200, 100, 255.02))
+        m.add_line((200, 100, 255.02), (0, 100, 255.00))
+        m.add_line((0, 100, 255.00), (0, 0, 255.00))
+        m.add_line((50, 0, 0), (50, 100, 100))  # gerçek 3B tel: alınmaz
+        s = self.oku(doc)
+        self.assertEqual(len(s.parcalar), 1)
+        self.assertAlmostEqual(s.parcalar[0].yuz_alani, 20000, places=6)
+        self.assertEqual(s.atlanan["3B tel çizgi"], 1)
+
     def test_yayli_polyline(self):
         # 100 × 60 dikdörtgen, köşeleri r = 10 yaylı (bulge)
         r, a, b = 10.0, 100.0, 60.0

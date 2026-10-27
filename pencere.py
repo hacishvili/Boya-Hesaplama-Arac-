@@ -205,10 +205,10 @@ class IceAktar(QDialog):
 
         orta = QSplitter(Qt.Horizontal)
         ana.addWidget(orta, 1)
-        self.tablo = QTableWidget(0, 6)
+        self.tablo = QTableWidget(0, 7)
         self.tablo.setHorizontalHeaderLabels(["Ekle / ad", "Tür", "Ölçü (mm)", "Sac kalınlığı", "Alan / adet (m²)",
-                                              "Durum"])
-        self.tablo.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+                                              "Adet", "Durum"])
+        self.tablo.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
         self.tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tablo.verticalHeader().hide()
         self.tablo.itemSelectionChanged.connect(self._sec)
@@ -345,7 +345,9 @@ class IceAktar(QDialog):
         eski = {}
         if koru:
             for r in range(self.tablo.rowCount()):
-                eski[r] = (self.tablo.item(r, 0).checkState(), self.tablo.item(r, 0).text())
+                sp = self.tablo.cellWidget(r, 5)
+                eski[r] = (self.tablo.item(r, 0).checkState(), self.tablo.item(r, 0).text(),
+                           sp.value() if sp is not None else 1)
         uc_var = any(t == "3d" and k for t, _, k, _, _ in self.ogeler)
         self.tablo.setRowCount(len(self.ogeler))
         for r, (tur, geo, kaynak, ad, hata) in enumerate(self.ogeler):
@@ -384,7 +386,7 @@ class IceAktar(QDialog):
             alan = sayi(kaynak_alani(kaynak) / 1e6, 4) if kaynak else "—"
             kal = "" if tur == "2d" else (f"{sayi(kaynak['sac']['kalinlik'], 2)} mm" if kaynak and kaynak.get("sac")
                                           else "—")
-            for c, x in enumerate([("2D açınım" if tur == "2d" else "3D gövde"), olcu, kal, alan, durum], start=1):
+            for c, x in zip((1, 2, 3, 4, 6), [("2D açınım" if tur == "2d" else "3D gövde"), olcu, kal, alan, durum]):
                 h = QTableWidgetItem(x)
                 h.setFlags(h.flags() & ~Qt.ItemIsEditable)
                 if c == 4:
@@ -393,6 +395,15 @@ class IceAktar(QDialog):
                     h.setForeground(QBrush(QColor(170, 40, 40)))
                     h.setToolTip(hata)
                 self.tablo.setItem(r, c, h)
+            adet = QSpinBox()
+            adet.setRange(1, 10_000_000)
+            adet.setValue(eski[r][2] if r in eski else 1)
+            adet.setKeyboardTracking(False)
+            adet.setEnabled(not hata)
+            adet.setToolTip("Bu parçadan kaç adet boyanacak")
+            self.tablo.setCellWidget(r, 5, adet)
+            self.tablo.setItem(r, 5, QTableWidgetItem())
+            self.tablo.item(r, 5).setFlags(Qt.NoItemFlags)
         self.tablo.setColumnHidden(3, not any(t == "2d" or (k and k.get("sac")) for t, _, k, *_ in self.ogeler))
         if not self.stl:  # 2D sac kalınlığı satırları yalnız 2D parça varken (3D sacın kalınlığı modelden)
             iki_d = any(t == "2d" for t, *_ in self.ogeler)
@@ -455,12 +466,14 @@ class IceAktar(QDialog):
             if kaynak is None or it.checkState() != Qt.Checked:
                 continue
             secenek, sayilar = self._imza(tur, geo, kaynak)
+            adet = self.tablo.cellWidget(r, 5).value()
             if self.topla.isChecked():
                 es = next((k for s_, n_, k in gruplar if s_ == secenek and self._ayni_mi(n_, sayilar)), None)
                 if es is not None:
-                    es.adet += 1
+                    es.adet += adet
                     continue
             k = Kalem(it.text().strip() or ad, copy.deepcopy(kaynak), toz=self.toz, dosya=self.yol)
+            k.adet = adet
             k.geo = geo
             out.append(k)
             gruplar.append((secenek, sayilar, k))
