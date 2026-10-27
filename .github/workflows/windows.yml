@@ -1,7 +1,9 @@
 name: Windows
 
+# PR'da ve main'e gönderide bir kez çalışır (dalda her gönderide hem push hem pull_request iki kez çalıştırıyordu)
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
