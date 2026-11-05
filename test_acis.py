@@ -249,6 +249,33 @@ class Acis(unittest.TestCase):
                         "open", "open", "none", "none", 2, 2, 0.0, 1, 1.0, 1, 0.0, derece_v, 1.0, derece_v, *pts,
                         "}", "I", "I", "I", "I")
 
+    def test_sat_sert_bolunmus_satirlar(self):
+        """Kayıtları 80 karakterde (sayı ortasından) bölünmüş SAT: sayı ikiye ayrılmadan okunur."""
+        tam = silindir(10.0, 0.0, 30.0, egim=0.3).satirlar()
+        bas, govde = list(tam[:3]), "".join(tam[3:])
+        bol = [govde[i:i + 80] for i in range(0, len(govde), 80)]
+        self.assertTrue(any(c[-1].isdigit() and n[0].isdigit() for c, n in zip(bol, bol[1:])))  # sayı bölünmüş
+        a = dxf_kati(self.klasor, [tam]).govdeler[0]
+        b = dxf_kati(self.klasor, [bas + bol], "bolunmus.dxf").govdeler[0]
+        self.assertEqual(b.hata, "")
+        self.assertAlmostEqual(b.alan, a.alan, places=6)
+        # kayıt sonunda biten (normal) çok satırlı kayıt: satırlar boşlukla birleşir
+        self.assertEqual(acis_alan.sat_satirlari(["1 2 3", "x", "y", "a 1", "2 #", "b #"])[3:], ["a 1 2 #", "b #"])
+
+    def test_neredeyse_dairesel_koni(self):
+        """Oranı 0,99998 olan koni (CAD artığı) daire sayılır; gerçekten eliptik koni hata verir."""
+        for oran, hata in ((0.99998, ""), (0.9, "eliptik koni")):
+            g = silindir(10.0, 0.0, 30.0, egim=0.3)
+            [r for r in g.s.r if r[0] == "cone-surface"][0][1][9] = oran
+            gv = dxf_kati(self.klasor, [g.satirlar()], f"k{oran}.dxf").govdeler[0]
+            if hata:
+                self.assertIn(hata, gv.hata)
+            else:
+                self.assertEqual(gv.hata, "")
+                r0, r1 = 10.0, 10.0 + 0.3 * 30
+                yan = math.pi * (r0 + r1) * math.hypot(30, r1 - r0) * (1 + oran) / 2
+                self.assertAlmostEqual(gv.alan, yan + math.pi * (r0 ** 2 + r1 ** 2), delta=1e-3 * gv.alan)
+
     def test_spline_tam_ve_kirpilmis(self):
         for dv in (1, 3):
             g = Govde()
