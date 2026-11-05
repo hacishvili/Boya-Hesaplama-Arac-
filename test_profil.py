@@ -40,6 +40,104 @@ def kutu_boru(a=30.0, t=2.0, L=300.0, gonye=0.0):
     return mb
 
 
+def delikli_plaka(delikler, A=100.0, B=60.0, H=5.0):
+    """A × B × H sac; delikler: (x, y, tür) — "duz" Ø8; "havsa" Ø6 + 90° havşa Ø12 (2 mm derin);
+    "kademe" Ø6 + Ø12 silindirik kademe (3 mm derin, araya düz halka)."""
+    g = T.Govde()
+    k = [g.kose((x, y, z)) for z in (0, H) for x, y in ((0, 0), (A, 0), (A, B), (0, B))]
+    p = [(0, 0), (A, 0), (A, B), (0, B)]
+
+    def dogru(i, j):
+        a, b = (*p[i % 4], 0 if i < 4 else H), (*p[j % 4], 0 if j < 4 else H)
+        d = [b[t] - a[t] for t in range(3)]
+        L = math.sqrt(sum(x * x for x in d))
+        return g.kenar(k[i], 0, k[j], L, g.dogru(a, [x / L for x in d]))
+    alt = [dogru(i, (i + 1) % 4) for i in range(4)]
+    ust = [dogru(4 + i, 4 + (i + 1) % 4) for i in range(4)]
+    dik = [dogru(i, 4 + i) for i in range(4)]
+
+    def daire(x, y, z, r):
+        v = g.kose((x + r, y, z))
+        return g.kenar(v, 0, v, T.TAM, g.daire((x, y, z), (0, 0, 1), (r, 0, 0)))
+    ust_d, alt_d = [[(e, False) for e in ust]], [[(e, True) for e in alt[::-1]]]
+    yuzler = []
+
+    def prizma(parcalar):
+        """Boydan boya kesik: parcalar ("dogru", p0, p1) ya da ("yay", merkez, r, a0, a1) (radyan)."""
+        bas = [pr[1] if pr[0] == "dogru" else (pr[1][0] + pr[2] * math.cos(pr[3]), pr[1][1] + pr[2] * math.sin(pr[3]))
+               for pr in parcalar]
+        vk = {z: [g.kose((x_, y_, z)) for x_, y_ in bas] for z in (0.0, H)}
+        dik_ = [g.kenar(vk[0.0][i], 0, vk[H][i], H, g.dogru((*bas[i], 0.0), (0, 0, 1))) for i in range(len(bas))]
+        kat = {}
+        for z in (0.0, H):
+            kat[z] = []
+            for i, pr in enumerate(parcalar):
+                j = (i + 1) % len(parcalar)
+                if pr[0] == "dogru":
+                    d = (pr[2][0] - pr[1][0], pr[2][1] - pr[1][1])
+                    L = math.hypot(*d)
+                    kat[z].append(g.kenar(vk[z][i], 0, vk[z][j], L, g.dogru((*pr[1], z), (d[0] / L, d[1] / L, 0))))
+                else:
+                    kat[z].append(g.kenar(vk[z][i], pr[3], vk[z][j], pr[4],
+                                          g.daire((*pr[1], z), (0, 0, 1), (pr[2], 0, 0))))
+        for i, pr in enumerate(parcalar):
+            j = (i + 1) % len(parcalar)
+            if pr[0] == "dogru":
+                d = (pr[2][0] - pr[1][0], pr[2][1] - pr[1][1])
+                yz = T.duzlem(g, (*pr[1], 0), (d[1], -d[0], 0), (d[0], d[1], 0))
+            else:
+                yz = T.koni(g, (*pr[1], 0), (0, 0, 1), (pr[2], 0, 0))
+            yuzler.append((yz, [[(kat[0.0][i], False), (dik_[j], False), (kat[H][i], True), (dik_[i], True)]]))
+        ust_d.append([(e, True) for e in kat[H][::-1]])
+        alt_d.append([(e, False) for e in kat[0.0]])
+
+    for x, y, tur in delikler:
+        if tur in ("kanal", "dikdortgen", "ucgen"):
+            if tur == "kanal":  # 30 × 8
+                prizma([("dogru", (x - 11, y - 4), (x + 11, y - 4)), ("yay", (x + 11, y), 4, -math.pi / 2, math.pi / 2),
+                        ("dogru", (x + 11, y + 4), (x - 11, y + 4)), ("yay", (x - 11, y), 4, math.pi / 2, 1.5 * math.pi)])
+            elif tur == "dikdortgen":  # 20 × 10
+                c_ = [(x - 10, y - 5), (x + 10, y - 5), (x + 10, y + 5), (x - 10, y + 5)]
+                prizma([("dogru", c_[i], c_[(i + 1) % 4]) for i in range(4)])
+            else:
+                c_ = [(x - 6, y - 4), (x + 6, y - 4), (x, y + 6)]
+                prizma([("dogru", c_[i], c_[(i + 1) % 3]) for i in range(3)])
+            continue
+        if tur == "elips":  # 20 × 10
+            va, vb = g.kose((x + 10, y, H)), g.kose((x + 10, y, 0))
+            a = g.kenar(va, 0, va, T.TAM, g.daire((x, y, H), (0, 0, 1), (10, 0, 0), 0.5))
+            b = g.kenar(vb, 0, vb, T.TAM, g.daire((x, y, 0), (0, 0, 1), (10, 0, 0), 0.5))
+            yz = g.s.ekle("cone-surface", float(x), float(y), 0.0, 0.0, 0.0, 1.0, 10.0, 0.0, 0.0, 0.5, "I", "I", 0.0,
+                          1.0, 10.0, "forward", "I", "I", "I", "I")
+            yuzler.append((yz, [[(a, False)], [(b, True)]]))
+            ust_d.append([(a, True)])
+            alt_d.append([(b, False)])
+            continue
+        if tur == "duz":
+            a, b = daire(x, y, H, 4), daire(x, y, 0, 4)
+            yuzler.append((T.koni(g, (x, y, 0), (0, 0, 1), (4, 0, 0)), [[(a, False)], [(b, True)]]))
+        elif tur == "havsa":
+            a, m, b = daire(x, y, H, 6), daire(x, y, H - 3, 3), daire(x, y, 0, 3)
+            yuzler.append((T.koni(g, (x, y, H - 3), (0, 0, 1), (3, 0, 0), egim=1.0), [[(a, False)], [(m, True)]]))
+            yuzler.append((T.koni(g, (x, y, 0), (0, 0, 1), (3, 0, 0)), [[(m, False)], [(b, True)]]))
+        else:
+            a, m6, m3, b = daire(x, y, H, 6), daire(x, y, H - 3, 6), daire(x, y, H - 3, 3), daire(x, y, 0, 3)
+            yuzler.append((T.koni(g, (x, y, 0), (0, 0, 1), (6, 0, 0)), [[(a, False)], [(m6, True)]]))
+            yuzler.append((T.duzlem(g, (x, y, H - 3), (0, 0, 1), (1, 0, 0)), [[(m6, False)], [(m3, True)]]))
+            yuzler.append((T.koni(g, (x, y, 0), (0, 0, 1), (3, 0, 0)), [[(m3, False)], [(b, True)]]))
+        ust_d.append([(a, True)])
+        alt_d.append([(b, False)])
+    g.yuz(T.duzlem(g, (0, 0, H), (0, 0, 1), (1, 0, 0)), ust_d)
+    g.yuz(T.duzlem(g, (0, 0, 0), (0, 0, -1), (1, 0, 0)), alt_d)
+    for i in range(4):
+        d = (p[(i + 1) % 4][0] - p[i][0], p[(i + 1) % 4][1] - p[i][1], 0)
+        g.yuz(T.duzlem(g, (*p[i], 0), (d[1], -d[0], 0), d),
+              [[(alt[i], False), (dik[(i + 1) % 4], False), (ust[i], True), (dik[i], True)]])
+    for yz, dl in yuzler:
+        g.yuz(yz, dl, ters=True)  # delik yüzlerinin normali eksene doğru
+    return g.satirlar()
+
+
 class Profil(unittest.TestCase):
     def setUp(self):
         self.klasor = tempfile.mkdtemp()
@@ -124,6 +222,50 @@ class Profil(unittest.TestCase):
         self.assertAlmostEqual(g.sac.kenar, 2 * 160 * 2, places=6)
         self.assertAlmostEqual(hesap.kaynak_hacmi({"tur": "3d", "sac": g.sac.sozluk()}), 100 * 60 * 2, places=6)
         self.assertIsNone(self.oku(forms.cube().scale(50, 50, 50)).sac)  # blok: sac değil
+
+    def test_delik_ve_havsa(self):
+        g = self.oku(delikli_plaka([(20, 20, "havsa"), (40, 20, "havsa"), (60, 30, "duz"), (80, 40, "kademe")]))
+        self.assertIsNotNone(g.sac)
+        ozet = profil.delik_ozeti([d.sozluk() for d in g.delikler])
+        self.assertEqual(ozet, [(1, "Ø8"), (2, "Ø6 havşa Ø12 × 90°"), (1, "Ø6 kademe Ø12")])
+        duz = next(d for d in g.delikler if abs(d.cap - 8) < 1e-6)
+        self.assertAlmostEqual(duz.duvar, math.pi * 8 * 5, delta=1e-3)
+        hv = next(d for d in g.delikler if d.havsa_aci)
+        self.assertAlmostEqual(hv.duvar, math.pi * 6 * 2, delta=1e-3)                 # yalnız silindir
+        self.assertAlmostEqual(hv.alan - hv.duvar, math.pi * (6 + 3) * 3 * math.sqrt(2), delta=1e-3)  # koni
+        self.assertGreater(len(g.ag.vurgu), 0)
+        k = {"tur": "3d", "alan": g.alan, "sac": g.sac.sozluk(), "delikler": [d.sozluk() for d in g.delikler]}
+        self.assertIn("4 delik (3 havşalı)", hesap.kaynak_aciklamasi(k))
+        tam = hesap.kaynak_alani(k)
+        k["delik_ici_boyanmaz"] = True
+        self.assertAlmostEqual(tam - hesap.kaynak_alani(k), sum(d.duvar for d in g.delikler), places=6)
+
+    def test_kanal_elips_ve_kesikler(self):
+        g = self.oku(delikli_plaka([(25, 15, "kanal"), (75, 15, "kanal"), (25, 45, "elips"), (75, 45, "dikdortgen"),
+                                    (50, 30, "ucgen"), (50, 50, "duz")], A=100.0, B=60.0))
+        ozet = dict((m, n) for n, m in profil.delik_ozeti([d.sozluk() for d in g.delikler]))
+        serbest = [m for m in ozet if m.startswith("serbest kesik")]
+        self.assertEqual(len(serbest), 1)
+        self.assertIn("(çevre 35,3)", serbest[0])  # üçgen: taban 12, yükseklik 10
+        del ozet[serbest[0]]
+        self.assertEqual(ozet, {"Ø8": 1, "kanal 30 × 8": 2, "elips 20 × 10": 1, "dikdörtgen 20 × 10": 1})
+        kanal = next(d for d in g.delikler if d.tur == "kanal")
+        self.assertAlmostEqual(kanal.duvar, (2 * 22 + math.pi * 8) * 5, delta=1e-3)
+        elips = next(d for d in g.delikler if d.tur == "elips")
+        cevre = 4 * 10 * 1.2110560275684594  # elips çevresi a = 10, b = 5 (E(e), e² = 0,75)
+        self.assertAlmostEqual(elips.duvar, cevre * 5, delta=1e-3)
+        # plaka alanı: iki yüz − ağızlar + bütün duvarlar + dış kenar
+        agiz = 2 * (22 * 8 + math.pi * 16) + math.pi * 50 + 200 + 60 + math.pi * 16
+        duvar = sum(d.duvar for d in g.delikler)
+        self.assertAlmostEqual(g.alan, 2 * (6000 - agiz) + duvar + 320 * 5, delta=1e-2)
+        k = {"tur": "3d", "alan": g.alan, "delikler": [d.sozluk() for d in g.delikler]}
+        self.assertIn("1 delik, 2 kanal, 1 elips, 1 dikdörtgen kesik, 1 serbest kesik", hesap.kaynak_aciklamasi(k))
+
+    def test_deliksiz_govdede_delik_yok(self):
+        from ezdxf.render import forms
+        self.assertEqual(self.oku(forms.cube().scale(100, 60, 2)).delikler, [])
+        g = self.oku(kutu_boru())
+        self.assertEqual(g.delikler, [])
 
     def test_sac_bukum_yuzleri(self):
         # 90° bükümlü sac kesitinin eş eksenli iki silindiri (r = 3 ve 5, t = 2) yüz sayılır, delik duvarı kenar

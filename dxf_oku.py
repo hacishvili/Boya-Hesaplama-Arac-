@@ -43,6 +43,7 @@ class Govde3D:
     tani: str = ""                 # hata raporu için ham veri (ACIS yüzey kaydı)
     profil: Optional[object] = None  # profil.Profil (mm, mm²): dış / iç / uç yüzeyler
     sac: Optional[object] = None     # profil.Sac (mm, mm²): kalınlık, iki yüz, kesim kenarları
+    delikler: list = field(default_factory=list)   # profil.Delik (mm, mm²): yuvarlak delik / havşa
 
     @property
     def alan(self) -> float:
@@ -457,6 +458,8 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         isim = ad if len(govdeler) == 1 else f"{ad}.{i + 1}"
         donguler = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.donguler]
         ag = Ag(donguler, alan_hazir=g.alan * k * k, tel=True, kapali_hazir=g.kapali) if donguler or not g.hata else None
+        if ag is not None:
+            ag.vurgu = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.vurgu]
         hata = ""
         if g.hata:
             hata = (g.hata + ". Bu gövdenin alanı DXF'ten hesaplanamıyor: çizimi STL olarak isteyin "
@@ -467,9 +470,13 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
             pr.boy, pr.kesit, pr.bosluk = pr.boy * k, (pr.kesit[0] * k, pr.kesit[1] * k), pr.bosluk * k
             pr.dis, pr.uc = pr.dis * k * k, pr.uc * k * k
             pr.ic = [(a * k * k, L * k) for a, L in pr.ic]
+            pr.kesit_alani *= k * k
         sac = None
         if g.sac is not None and not hata:
             sac = g.sac
             sac.kalinlik, sac.yuz, sac.kenar = sac.kalinlik * k, sac.yuz * k * k, sac.kenar * k * k
-        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac))
+        delikler = [] if hata else g.delikler
+        for d in delikler:
+            d.olcekle(k)
+        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler))
     return out

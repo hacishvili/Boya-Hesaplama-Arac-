@@ -104,11 +104,13 @@ def kaynak_alani(k: Dict[str, Any]) -> float:
         kenar = float(k["cevre"]) * float(k.get("kalinlik", 0.0)) if k.get("kenar", True) else 0.0
         return yuz + kenar
     if tur == "3d":
+        # delik içi boyanmaz: silindir duvarları düşülür (havşa ağzı boyanır)
+        duvar = sum(float(d.get("duvar", 0.0)) for d in k.get("delikler", [])) if k.get("delik_ici_boyanmaz") else 0.0
         if k.get("profil"):
             import profil
-            return profil.profil_alani(k["profil"], k.get("ic_boya", "uçlardan"), float(k.get("ic_derinlik", 0.0)),
-                                       bool(k.get("uc_boya", True)))
-        return float(k["alan"]) * float(k.get("katsayi", 1.0))
+            return max(0.0, profil.profil_alani(k["profil"], k.get("ic_boya", "uçlardan"),
+                                                float(k.get("ic_derinlik", 0.0)), bool(k.get("uc_boya", True))) - duvar)
+        return max(0.0, float(k["alan"]) * float(k.get("katsayi", 1.0)) - duvar)
     if tur == "kalip":
         return kaliplar.alan(k["kalip"], k.get("deger", {}))
     if tur == "elle":
@@ -137,6 +139,16 @@ def kaynak_hacmi(k: Dict[str, Any]) -> Optional[float]:
 
 
 def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
+    s = _kaynak_aciklamasi(k)
+    if k.get("tur") == "3d" and k.get("delikler"):
+        import profil
+        s += "; " + profil.delik_sayimi(k["delikler"])
+        if k.get("delik_ici_boyanmaz"):
+            s += ", delik içi boyanmaz"
+    return s
+
+
+def _kaynak_aciklamasi(k: Dict[str, Any]) -> str:
     tur = k.get("tur")
     if tur == "2d":
         w, h = k.get("olcu", (0, 0))

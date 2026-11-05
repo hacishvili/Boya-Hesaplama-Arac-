@@ -84,6 +84,12 @@ tutar    = toz (kg) × toz fiyatı  +  alan (m²) × proses ücreti
 Maske düşüldükten sonra kalan alan boyanır: `alan = çizim alanı × (1 − maske %) − maske cm²`. Çok katlı işlerde
 (astar + son kat) toz ve proses kat sayısıyla çarpılır; alan bir kez sayılır.
 
+**Delikler, havşalar ve kesikler** (3D katı): düz yüzün iç döngüsü (ağzı) olan her açıklık tanınır ve aynı
+ölçülüler gruplanır: yuvarlak delik (`Ø6 havşa Ø12 × 90°`, `Ø6 kademe Ø12`), kanal / oval (`kanal 30 × 8`), elips
+(`elips 20 × 10`), dikdörtgen pencere ve serbest kesik (en küçük çevreleyen dikdörtgen ve çevre). Önizlemede turuncu
+çizilir. Delik ve kesik duvarları alana dahildir; "Delik içleri boyanmaz" işaretlenirse duvarlar düşülür (havşa ağzı
+boyanır). Kenardan açılan (açık uçlu) çentikler ve boru duvarındaki delikler listelenmez, alana yine dahildir.
+
 **Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,
 3D sacta kalınlık × yüz, 3D profilde ortadaki kesitin metal alanı × boy (yuvarlatılmış köşelerde yaklaşık), kapalı
 STL / mesh gövdede ağın hacmi, kalıplarda ölçülerden. Dolu ACIS gövdelerde ve elle alan kalemlerinde hesaplanmaz

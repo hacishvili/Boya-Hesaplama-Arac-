@@ -339,6 +339,7 @@ class Ag:
     alan_hazir: Optional[float] = None  # doğrudan hesaplanmış alan (mm²; ACIS katılar)
     tel: bool = False                   # yuzler yalnız kenar döngüleri (önizlemede doldurulmaz)
     kapali_hazir: Optional[bool] = None
+    vurgu: List[List[Nokta3]] = field(default_factory=list)  # önizlemede renkli döngüler (delik, havşa)
 
     @property
     def alan(self) -> float:
