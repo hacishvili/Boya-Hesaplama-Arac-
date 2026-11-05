@@ -776,7 +776,10 @@ class KaynakGorunum(QWidget):
         self.ag, self.secim = ag, secim
         self.setMinimumSize(560, 420)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.yaw, self.pitch, self.zoom = math.radians(-35), math.radians(30), 1.0
+        self.kay = QPointF(0, 0)          # kaydırma (ekranda, piksel)
+        self._kaydir = None               # orta / sağ tuşla sürüklerken son konum
         pts = [q for k in ag.kenarlar for q in k] or [q for y in ag.yuzler for q in y] or [(0, 0, 0)]
         self.merkez = tuple((max(q[i] for q in pts) + min(q[i] for q in pts)) / 2 for i in range(3))
         self.boy = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3)) or 1.0
@@ -788,7 +791,7 @@ class KaynakGorunum(QWidget):
     def _izdus(self):
         cy, sy, cp, sp = math.cos(self.yaw), math.sin(self.yaw), math.cos(self.pitch), math.sin(self.pitch)
         olcek = 0.8 * min(self.width(), self.height()) / self.boy * self.zoom
-        ox, oy, mx, my, mz = self.width() / 2, self.height() / 2, *self.merkez
+        ox, oy, mx, my, mz = self.width() / 2 + self.kay.x(), self.height() / 2 + self.kay.y(), *self.merkez
 
         def f(q):
             x, y, z = q[0] - mx, q[1] - my, q[2] - mz
@@ -824,8 +827,9 @@ class KaynakGorunum(QWidget):
                 p.setPen(pen)
             p.drawPolyline(QPolygonF(k))
         p.setPen(self.palette().text().color())
-        p.drawText(QRectF(8, self.height() - 22, self.width() - 16, 18), Qt.AlignLeft,
-                   "Tıkla: tek taraf → iki taraf → kaldır · sürükle: döndür · tekerlek: yakınlaştır")
+        p.drawText(QRectF(8, self.height() - 38, self.width() - 16, 34), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
+                   "Tıkla: tek taraf → iki taraf → kaldır · sol sürükle: döndür · tekerlek: imleçte yakınlaştır · "
+                   "orta / sağ sürükle: kaydır · orta çift tık ya da F: sığdır")
 
     def _en_yakin(self, pt: QPointF, esik: float = 7.0) -> int:
         en, sec = esik, -1
@@ -840,18 +844,46 @@ class KaynakGorunum(QWidget):
         return sec
 
     def mousePressEvent(self, e):
+        if e.button() in (Qt.MiddleButton, Qt.RightButton):  # CAD gibi: orta (ya da sağ) tuşla kaydır
+            self._kaydir = e.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            return
         self._bas = e.position()
         self._suruklendi = False
 
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.MiddleButton:  # orta tuşa çift tık: sığdır
+            self.sigdir()
+        else:
+            super().mouseDoubleClickEvent(e)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Home, Qt.Key_F):
+            self.sigdir()
+        else:
+            super().keyPressEvent(e)
+
+    def sigdir(self):
+        self.zoom, self.kay = 1.0, QPointF(0, 0)
+        self._gorunum_degisti()
+
+    def _gorunum_degisti(self):
+        self.update()
+
     def mouseMoveEvent(self, e):
-        if self._bas is not None and e.buttons():
+        if self._kaydir is not None:
+            self.kay += e.position() - self._kaydir
+            self._kaydir = e.position()
+            self._gorunum_degisti()
+            return
+        if self._bas is not None and e.buttons() & Qt.LeftButton:
             d = e.position() - self._bas
             if abs(d.x()) + abs(d.y()) > 3:
                 self._suruklendi = True
                 self.yaw += d.x() * 0.01
                 self.pitch = max(-math.pi / 2, min(math.pi / 2, self.pitch + d.y() * 0.01))
                 self._bas = e.position()
-                self.update()
+                self._gorunum_degisti()
             return
         i = self._en_yakin(e.position())
         if i != self.ustteki:
@@ -859,7 +891,12 @@ class KaynakGorunum(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, e):
-        if not self._suruklendi:
+        if self._kaydir is not None:
+            if e.button() in (Qt.MiddleButton, Qt.RightButton):
+                self._kaydir = None
+                self.unsetCursor()
+            return
+        if self._bas is not None and not self._suruklendi and e.button() == Qt.LeftButton:
             self.tikla(self._en_yakin(e.position()))
         self._bas = None
 
@@ -875,8 +912,21 @@ class KaynakGorunum(QWidget):
         self.degisti.emit()
 
     def wheelEvent(self, e):
-        self.zoom = max(0.2, min(20.0, self.zoom * (1.15 if e.angleDelta().y() > 0 else 1 / 1.15)))
-        self.update()
+        """İmlecin altındaki nokta yerinde kalarak yakınlaştırır (CAD gibi)."""
+        d = e.angleDelta().y()
+        if not d:
+            return
+        yeni = max(0.2, min(200.0, self.zoom * 1.15 ** (d / 120)))
+        k = yeni / self.zoom
+        self.yakinlastir(e.position(), k)
+
+    def yakinlastir(self, imlec: QPointF, k: float):
+        """imlec çevresinde k kat yakınlaştır: ekrandaki O merkezi O' = imlec − k (imlec − O)."""
+        O = QPointF(self.width() / 2, self.height() / 2) + self.kay
+        O2 = imlec - (imlec - O) * k
+        self.kay = O2 - QPointF(self.width() / 2, self.height() / 2)
+        self.zoom *= k
+        self._gorunum_degisti()
 
 
 class KaynakPenceresi(QDialog):
@@ -1011,8 +1061,9 @@ class YuzeyGorunum(KaynakGorunum):
         for k in self.ag.kenarlar or [d for y in self.ag.yuz_donguleri for d in y]:
             p.drawPolyline(QPolygonF([f(q)[0] for q in k]))
         p.setPen(self.palette().text().color())
-        p.drawText(QRectF(8, self.height() - 22, self.width() - 16, 18), Qt.AlignLeft,
-                   "Tıkla: yüzeyi seç / bırak · sürükle: döndür · tekerlek: yakınlaştır")
+        p.drawText(QRectF(8, self.height() - 38, self.width() - 16, 34), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
+                   "Tıkla: yüzeyi seç / bırak · sol sürükle: döndür · tekerlek: imleçte yakınlaştır · "
+                   "orta / sağ sürükle: kaydır · orta çift tık ya da F: sığdır")
 
     def _en_yakin(self, pt: QPointF, esik: float = 0.0) -> int:
         if not self._yollar:
@@ -1030,6 +1081,10 @@ class YuzeyGorunum(KaynakGorunum):
     def resizeEvent(self, e):
         self._yollar = []
         super().resizeEvent(e)
+
+    def _gorunum_degisti(self):
+        self._yollar = []
+        self.update()
 
 
 class YuzeyPenceresi(QDialog):
