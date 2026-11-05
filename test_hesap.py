@@ -139,7 +139,7 @@ class Toz_(unittest.TestCase):
         self.assertEqual(hesap.Kalem.sozlukten(k.sozluk()).islemler, k.islemler)
         b = hesap.Ayarlar.sozlukten(a.sozluk())
         self.assertEqual([(i.ad, i.birim, i.fiyat, i.kaynak) for i in b.islemler],
-                         [("Kaynak", "m", 40.0, ""), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "")])
+                         [("Kaynak", "m", 40.0, "kaynak"), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "")])
         self.assertEqual(len(hesap.Ayarlar.sozlukten({}).islemler), 3)          # eski ayar dosyası: varsayılanlar
         klasor = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, klasor, True)

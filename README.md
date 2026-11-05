@@ -92,7 +92,10 @@ boyanır). Kenardan açılan (açık uçlu) çentikler ve boru duvarındaki deli
 
 **İşlemler** (boya dışı: kaynak, havşa, polisaj ...): Ayarlar'da her işlemin birimi (adet, m, m², kg, dk, sabit) ve
 birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına miktar girilir; havşa sayısı çizimden gelir
-("elle" işaretlenince değiştirilir). Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
+("elle" işaretlenince değiştirilir). Kaynak metresi 3D çizimden seçilir ("Seç…"): parçanın kenarları döndürülüp
+yakınlaştırılabilen pencerede gösterilir, tıklanan kenar tek taraflı → iki taraflı (×2) → kaldır olarak değişir.
+Birbirine değen katılarda (ör. sacın üstüne dikilmiş boru) değme kenarları kaynak yeri olarak önerilir ve içe
+aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sayılır. Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
 fiyat × adet`; tabloda ve raporlarda adet fiyatı ve işlem dökümü yer alır.
 
 **Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,

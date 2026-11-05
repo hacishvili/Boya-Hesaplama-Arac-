@@ -49,6 +49,13 @@ class YuzBilgi:
     egim: float = 0.0
     kenarlar: List[frozenset] = field(default_factory=list)   # döngü başına kenar kimlikleri (komşuluk için)
 
+    def olcekle(self, k: float) -> "YuzBilgi":
+        """Çizim biriminden mm'ye (kopya)."""
+        return YuzBilgi(self.alan * k * k, [[(x * k, y * k, z * k) for x, y, z in d] for d in self.donguler],
+                        self.tur, self.normal, self.eksen,
+                        None if self.merkez is None else tuple(c * k for c in self.merkez), self.r0 * k, self.egim,
+                        self.kenarlar)
+
 
 @dataclass
 class Profil:
@@ -573,3 +580,109 @@ def delik_sayimi(delikler: Sequence[Dict]) -> str:
         if n:
             parca.append(f"{n} {ad}")
     return ", ".join(parca)
+
+
+# ---------------------------------------------------------------- kaynak dikişi önerisi
+
+def kenar_boyu(k: Sequence[V3]) -> float:
+    return sum(math.dist(k[i], k[i + 1]) for i in range(len(k) - 1))
+
+
+def _icinde(p: Tuple[float, float], d: Sequence[Tuple[float, float]], tol: float) -> bool:
+    """Nokta çokgenin içinde ya da kenarına tol kadar yakın mı."""
+    n = len(d)
+    ic = False
+    for i in range(n):
+        a, b = d[i], d[(i + 1) % n]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        l2 = dx * dx + dy * dy
+        t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2))
+        if math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy) <= tol:
+            return True
+        if (a[1] > p[1]) != (b[1] > p[1]) and p[0] < a[0] + (p[1] - a[1]) * dx / (dy or 1e-300):
+            ic = not ic
+    return ic
+
+
+class _Yuzey:
+    """Temas denetimi için yüz: nokta yüzün üstünde mi (düzlem: sınırlar içinde; silindir / koni: yarıçap ve boy)."""
+
+    def __init__(self, y: YuzBilgi, tol: float):
+        self.y, self.tol = y, tol
+        pts = [q for d in y.donguler for q in d]
+        self.kutu = (tuple(min(q[i] for q in pts) - tol for i in range(3)),
+                     tuple(max(q[i] for q in pts) + tol for i in range(3))) if pts else None
+        if y.tur == "duzlem" and y.normal is not None and y.donguler:
+            self.e1, self.e2 = _taban(y.normal)
+            self.o = y.donguler[0][0]
+            d2 = [[(_ic(_cik(q, self.o), self.e1), _ic(_cik(q, self.o), self.e2)) for q in d] for d in y.donguler]
+            alan = [abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(d, d[1:] + d[:1]))) for d in d2]
+            i = max(range(len(alan)), key=alan.__getitem__)
+            self.dis, self.delik = d2[i], [d for j, d in enumerate(d2) if j != i]
+        elif y.tur == "koni" and y.eksen is not None and y.merkez is not None and y.donguler:
+            hh = [_ic(_cik(q, y.merkez), y.eksen) for d in y.donguler for q in d]
+            self.h = (min(hh) - tol, max(hh) + tol)
+        else:
+            self.kutu = None  # desteklenmeyen yüz türü: temas aranmaz
+
+    def ustunde(self, p: V3) -> bool:
+        if self.kutu is None or any(p[i] < self.kutu[0][i] or p[i] > self.kutu[1][i] for i in range(3)):
+            return False
+        y, tol = self.y, self.tol
+        if y.tur == "duzlem":
+            v = _cik(p, self.o)
+            if abs(_ic(v, y.normal)) > tol:
+                return False
+            q = (_ic(v, self.e1), _ic(v, self.e2))
+            return _icinde(q, self.dis, tol) and not any(_icinde(q, d, -tol) for d in self.delik)
+        v = _cik(p, y.merkez)
+        h = _ic(v, y.eksen)
+        if not self.h[0] <= h <= self.h[1]:
+            return False
+        rho = math.sqrt(max(0.0, _ic(v, v) - h * h))
+        return abs(rho - (y.r0 + y.egim * h)) <= tol
+
+
+def temas_kenarlari(kenarlar: Sequence[Sequence[V3]], yuzler: Sequence[YuzBilgi], tol: float = 0.05) -> List[int]:
+    """Başka bir gövdenin yüzleri üzerinde yatan kenarlar (iki parçanın birleştiği yer: kaynak dikişi önerisi).
+    Kenarın bütün örnek noktaları o gövdenin bir yüzünde olmalı."""
+    ys = [_Yuzey(y, tol) for y in yuzler]
+    ys = [y for y in ys if y.kutu is not None]
+    if not ys:
+        return []
+    lo = tuple(min(y.kutu[0][i] for y in ys) for i in range(3))
+    hi = tuple(max(y.kutu[1][i] for y in ys) for i in range(3))
+    out = []
+    for i, k in enumerate(kenarlar):
+        if len(k) < 2 or kenar_boyu(k) <= tol:
+            continue
+        ornek = [k[int(j * (len(k) - 1) / 8)] for j in range(9)]
+        if any(p[c] < lo[c] or p[c] > hi[c] for p in ornek for c in range(3)):
+            continue
+        if all(any(y.ustunde(p) for y in ys) for p in ornek):
+            out.append(i)
+    return out
+
+
+def kaynak_onerisi(govdeler: Sequence[Tuple[Sequence[Sequence[V3]], Sequence[YuzBilgi]]],
+                   tol: float = 0.05) -> List[List[int]]:
+    """Her gövde için önerilen kaynak kenarları. Bir dikiş iki gövdede de kenar olarak varsa yalnız ilkinde
+    sayılır (iki kez fiyatlanmasın)."""
+    out: List[List[int]] = [[] for _ in govdeler]
+    secilen: List[Sequence[V3]] = []
+
+    def ayni(k, m):
+        if abs(kenar_boyu(k) - kenar_boyu(m)) > 2 * tol:
+            return False
+        return all(min(math.dist(p, q) for q in m) <= 2 * tol for p in (k[0], k[len(k) // 2], k[-1]))
+
+    for i, (ki, _) in enumerate(govdeler):
+        aday = set()
+        for j, (_, yj) in enumerate(govdeler):
+            if i != j:
+                aday.update(temas_kenarlari(ki, yj, tol))
+        for e in sorted(aday):
+            if not any(ayni(ki[e], m) for m in secilen):
+                out[i].append(e)
+                secilen.append(ki[e])
+    return out

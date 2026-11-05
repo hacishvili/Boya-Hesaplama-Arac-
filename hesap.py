@@ -33,7 +33,7 @@ class Toz:
 
 
 ISLEM_BIRIMLERI = ("adet", "m", "m²", "kg", "dk", "sabit")
-ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı"}
+ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı", "kaynak": "çizimden: kaynak dikişleri (m)"}
 
 
 @dataclass
@@ -46,7 +46,15 @@ class Islem:
 
 
 def varsayilan_islemler() -> List[Islem]:
-    return [Islem("Kaynak", "m"), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
+    return [Islem("Kaynak", "m", kaynak="kaynak"), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
+
+
+def kaynak_boyu_mm(k: Dict[str, Any]) -> Optional[float]:
+    """Kaynakta seçili dikişlerin toplam boyu (mm; iki taraflı ×2); seçim bilgisi yoksa None.
+    kaynak_dikisleri: [[kenar sırası, taraf (1 / 2), boy mm], ...]"""
+    if "kaynak_dikisleri" not in k:
+        return None
+    return sum(float(d[2]) * int(d[1]) for d in k["kaynak_dikisleri"])
 
 
 @dataclass
@@ -260,6 +268,9 @@ def otomatik_miktar(k: "Kalem", islem: Islem) -> Optional[float]:
     """İşlem miktarının çizimden gelen değeri (adet başına); çizimden gelmiyorsa None."""
     if islem.kaynak == "havsa":
         return float(sum(1 for d in k.kaynak.get("delikler", []) if d.get("havsa_cap") and d.get("havsa_aci")))
+    if islem.kaynak == "kaynak":
+        b = kaynak_boyu_mm(k.kaynak)
+        return None if b is None else b / 1000.0
     return None
 
 

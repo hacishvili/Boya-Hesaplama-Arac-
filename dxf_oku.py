@@ -44,6 +44,7 @@ class Govde3D:
     profil: Optional[object] = None  # profil.Profil (mm, mm²): dış / iç / uç yüzeyler
     sac: Optional[object] = None     # profil.Sac (mm, mm²): kalınlık, iki yüz, kesim kenarları
     delikler: list = field(default_factory=list)   # profil.Delik (mm, mm²): yuvarlak delik / havşa
+    yuzler: list = field(default_factory=list)     # profil.YuzBilgi (mm): kaynak önerisi için
 
     @property
     def alan(self) -> float:
@@ -384,6 +385,7 @@ def cozumle(doc, olcek: Optional[float] = None, haric: Iterable[str] = (), kesik
         zincir, s.kullanilamayan = zincirle(acik, tol=tol_mm)
         kapali.extend(Kontur(z) for z in zincir)
     s.parcalar = yerlestir(kapali)
+    _kaynak_onerisi(s.govdeler)
     s.etiketli = _etiketleri_bagla(s.parcalar, etiketler)
     if s.kullanilamayan:
         s.uyarilar.append(f"{s.kullanilamayan} açık çizgi kapalı bir kontura bağlanamadı ve alınmadı "
@@ -465,6 +467,20 @@ def birim_uyarisi(en_buyuk_mm: float) -> str:
 
 # ---------------------------------------------------------------- ACIS
 
+def _kaynak_onerisi(govdeler: List[Govde3D]) -> None:
+    """Birbirine değen katılarda değme kenarları önerilen kaynak dikişi (Ag.oneri)."""
+    import profil
+    adaylar = [g for g in govdeler if g.ag is not None and g.ag.kenarlar and g.yuzler and not g.hata]
+    if len(adaylar) < 2:
+        return
+    try:
+        oneri = profil.kaynak_onerisi([(g.ag.kenarlar, g.yuzler) for g in adaylar])
+    except (ValueError, ZeroDivisionError):
+        return
+    for g, o in zip(adaylar, oneri):
+        g.ag.oneri = o
+
+
 def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
     """ACIS varlığının her parçası (lump) bir gövde (acis_alan). Bir yüzü bile hesaplanamayan gövde hatasıyla
     döner; alanı eksik verilmez."""
@@ -480,6 +496,8 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         ag = Ag(donguler, alan_hazir=g.alan * k * k, tel=True, kapali_hazir=g.kapali) if donguler or not g.hata else None
         if ag is not None:
             ag.vurgu = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.vurgu]
+            ag.kenarlar = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.kenarlar]
+            ag.yardimci = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.yardimci]
         hata = ""
         if g.hata:
             hata = (g.hata + ". Bu gövdenin alanı DXF'ten hesaplanamıyor: çizimi STL olarak isteyin "
@@ -498,5 +516,7 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         delikler = [] if hata else g.delikler
         for d in delikler:
             d.olcekle(k)
-        out.append(Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler))
+        gv = Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler)
+        gv.yuzler = [] if hata else [y.olcekle(k) for y in g.yuz_bilgileri]
+        out.append(gv)
     return out

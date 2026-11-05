@@ -124,6 +124,9 @@ class Onizleme(QWidget):
             p.setPen(QPen(QColor(30, 80, 140), 1.0))
             for y in yuzler:
                 p.drawPolygon(QPolygonF([donus(*proj(q)) for q in y]))
+            p.setPen(QPen(QColor(150, 170, 190), 0.6))
+            for y in self._ag.yardimci:
+                p.drawPolyline(QPolygonF([donus(*proj(q)) for q in y]))
             if self._ag.vurgu:  # delik ve havşa döngüleri
                 p.setPen(QPen(QColor(220, 110, 0), 1.8))
                 for y in self._ag.vurgu:
@@ -312,6 +315,10 @@ class IceAktar(QDialog):
                                               "varlik": g.tur}
                 if kaynak and g.delikler:
                     kaynak["delikler"] = [d.sozluk() for d in g.delikler]
+                if kaynak and g.ag is not None and g.ag.kenarlar:  # başka gövdeye değen kenarlar: önerilen kaynak
+                    import profil
+                    kaynak["kaynak_dikisleri"] = [[i, 1, round(profil.kenar_boyu(g.ag.kenarlar[i]), 3)]
+                                                  for i in g.ag.oneri]
                 if kaynak and g.ag is not None and g.ag.hacim():
                     kaynak["hacim"] = g.ag.hacim()  # kapalı çokgen ağ (3DFACE / polyface / mesh)
                 if kaynak and g.sac is not None:
@@ -502,8 +509,15 @@ class IceAktar(QDialog):
     def _birlesik_kalem(self, satirlar: List[int]) -> Kalem:
         """Seçili 3D gövdeler tek kalem: adet başına alan = Σ (gövde alanı × gövde adedi); adet 1."""
         toplam, kapali, geolar, hacim, delikler = 0.0, True, [], 0.0, []
+        kenarlar, carpan, dikis, oneri = [], [], [], []
         for r in satirlar:
             _, geo, kaynak, _, _ = self.ogeler[r]
+            n = self.tablo.cellWidget(r, 5).value()
+            if isinstance(geo, Ag) and geo.kenarlar:
+                dikis += [[d[0] + len(kenarlar), d[1], d[2] * n] for d in kaynak.get("kaynak_dikisleri", [])]
+                oneri += [i + len(kenarlar) for i in geo.oneri]
+                kenarlar += geo.kenarlar
+                carpan += [n] * len(geo.kenarlar)
             delikler += list(kaynak.get("delikler", [])) * self.tablo.cellWidget(r, 5).value()
             toplam += kaynak_alani(kaynak) * self.tablo.cellWidget(r, 5).value()
             h = kaynak_hacmi(kaynak)
@@ -517,10 +531,13 @@ class IceAktar(QDialog):
             kaynak["hacim"] = hacim
         if delikler:
             kaynak["delikler"] = delikler
+        if kenarlar:
+            kaynak["kaynak_dikisleri"] = dikis
         k = Kalem(self.dosya_adi, kaynak, toz=self.toz, dosya=self.yol)
         # ACIS katılarının önizlemesi kenar döngüleridir (tel): dolu çizilirse delik ve havşa döngüleri kapanır
         k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi, tel=any(g.tel for g in geolar),
-                   vurgu=[d for g in geolar for d in g.vurgu]) if geolar else None
+                   vurgu=[d for g in geolar for d in g.vurgu], kenarlar=kenarlar, kenar_carpan=carpan,
+                   oneri=oneri, yardimci=[d for g in geolar for d in g.yardimci]) if geolar else None
         return k
 
     def kalemler(self) -> List[Kalem]:
@@ -725,6 +742,182 @@ class KalipFormu(QWidget):
 
     def deger(self) -> Dict:
         return {k: (w.currentText() if isinstance(w, QComboBox) else w.value()) for k, w in self.alanlar.items()}
+
+
+class KaynakGorunum(QWidget):
+    """3D gövdenin kenarları; fareyle döndürülür (sürükle), yakınlaştırılır (tekerlek). Tıklanan kenarın durumu
+    döner: seçilmemiş → tek taraflı → iki taraflı → seçilmemiş. Önerilen kenarlar yeşil kesikli."""
+    degisti = Signal()
+    RENK = {1: QColor(230, 120, 0), 2: QColor(200, 30, 30)}
+
+    def __init__(self, ag: Ag, secim: Dict[int, int], parent=None):
+        super().__init__(parent)
+        self.ag, self.secim = ag, secim
+        self.setMinimumSize(560, 420)
+        self.setMouseTracking(True)
+        self.yaw, self.pitch, self.zoom = math.radians(-35), math.radians(30), 1.0
+        pts = [q for k in ag.kenarlar for q in k] or [q for y in ag.yuzler for q in y] or [(0, 0, 0)]
+        self.merkez = tuple((max(q[i] for q in pts) + min(q[i] for q in pts)) / 2 for i in range(3))
+        self.boy = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3)) or 1.0
+        self._bas = None
+        self._suruklendi = False
+        self.ustteki = -1
+        self._ekran: List[List[QPointF]] = []
+
+    def _izdus(self):
+        cy, sy, cp, sp = math.cos(self.yaw), math.sin(self.yaw), math.cos(self.pitch), math.sin(self.pitch)
+        olcek = 0.8 * min(self.width(), self.height()) / self.boy * self.zoom
+        ox, oy, mx, my, mz = self.width() / 2, self.height() / 2, *self.merkez
+
+        def f(q):
+            x, y, z = q[0] - mx, q[1] - my, q[2] - mz
+            x1, y1 = cy * x - sy * y, sy * x + cy * y          # z ekseni çevresinde
+            y2, z2 = cp * y1 - sp * z, sp * y1 + cp * z          # yatay eksen çevresinde
+            return QPointF(ox + olcek * x1, oy - olcek * z2), y2  # y2: derinlik
+        return f
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), self.palette().base())
+        f = self._izdus()
+        p.setPen(QPen(QColor(180, 190, 200), 0.8))
+        if not self.ag.kenarlar:
+            for y in self.ag.yuzler:
+                p.drawPolygon(QPolygonF([f(q)[0] for q in y]))
+        for y in self.ag.yardimci:
+            p.drawPolyline(QPolygonF([f(q)[0] for q in y]))
+        self._ekran = [[f(q)[0] for q in k] for k in self.ag.kenarlar]
+        oneri = set(self.ag.oneri)
+        for i, k in enumerate(self._ekran):
+            taraf = self.secim.get(i, 0)
+            if taraf:
+                p.setPen(QPen(self.RENK[taraf], 4.0 if taraf == 2 else 3.0))
+            elif i in oneri:
+                p.setPen(QPen(QColor(40, 150, 60), 2.0, Qt.DashLine))
+            else:
+                p.setPen(QPen(QColor(30, 80, 140), 1.0))
+            if i == self.ustteki:
+                pen = p.pen()
+                pen.setWidthF(pen.widthF() + 2)
+                p.setPen(pen)
+            p.drawPolyline(QPolygonF(k))
+        p.setPen(self.palette().text().color())
+        p.drawText(QRectF(8, self.height() - 22, self.width() - 16, 18), Qt.AlignLeft,
+                   "Tıkla: tek taraf → iki taraf → kaldır · sürükle: döndür · tekerlek: yakınlaştır")
+
+    def _en_yakin(self, pt: QPointF, esik: float = 7.0) -> int:
+        en, sec = esik, -1
+        for i, k in enumerate(self._ekran):
+            for a, b in zip(k, k[1:]):
+                dx, dy = b.x() - a.x(), b.y() - a.y()
+                l2 = dx * dx + dy * dy
+                t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((pt.x() - a.x()) * dx + (pt.y() - a.y()) * dy) / l2))
+                d = math.hypot(pt.x() - a.x() - t * dx, pt.y() - a.y() - t * dy)
+                if d < en:
+                    en, sec = d, i
+        return sec
+
+    def mousePressEvent(self, e):
+        self._bas = e.position()
+        self._suruklendi = False
+
+    def mouseMoveEvent(self, e):
+        if self._bas is not None and e.buttons():
+            d = e.position() - self._bas
+            if abs(d.x()) + abs(d.y()) > 3:
+                self._suruklendi = True
+                self.yaw += d.x() * 0.01
+                self.pitch = max(-math.pi / 2, min(math.pi / 2, self.pitch + d.y() * 0.01))
+                self._bas = e.position()
+                self.update()
+            return
+        i = self._en_yakin(e.position())
+        if i != self.ustteki:
+            self.ustteki = i
+            self.update()
+
+    def mouseReleaseEvent(self, e):
+        if not self._suruklendi:
+            self.tikla(self._en_yakin(e.position()))
+        self._bas = None
+
+    def tikla(self, i: int):
+        if i < 0:
+            return
+        t = (self.secim.get(i, 0) + 1) % 3
+        if t:
+            self.secim[i] = t
+        else:
+            self.secim.pop(i, None)
+        self.update()
+        self.degisti.emit()
+
+    def wheelEvent(self, e):
+        self.zoom = max(0.2, min(20.0, self.zoom * (1.15 if e.angleDelta().y() > 0 else 1 / 1.15)))
+        self.update()
+
+
+class KaynakPenceresi(QDialog):
+    """3D gövdeden kaynak dikişi seçimi: seçilen kenarların boyu (iki taraflı ×2) toplanır."""
+
+    def __init__(self, ag: Ag, dikisler: List[list], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Kaynak yerleri")
+        self.resize(900, 640)
+        self.ag = ag
+        secim = {int(d[0]): int(d[1]) for d in dikisler if 0 <= int(d[0]) < len(ag.kenarlar)}
+        v = QVBoxLayout(self)
+        self.gorunum = KaynakGorunum(ag, secim)
+        v.addWidget(self.gorunum, 1)
+        self.ozet = QLabel()
+        v.addWidget(self.ozet)
+        h = QHBoxLayout()
+        oneri = QPushButton(f"Önerileri seç ({len(ag.oneri)})")
+        oneri.setToolTip("Başka gövdeye değen kenarlar (yeşil kesikli): tek taraflı seçilir")
+        oneri.setEnabled(bool(ag.oneri))
+        oneri.clicked.connect(self._oneriler)
+        temizle = QPushButton("Seçimi temizle")
+        temizle.clicked.connect(self._temizle)
+        h.addWidget(oneri)
+        h.addWidget(temizle)
+        h.addStretch(1)
+        b = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        b.button(QDialogButtonBox.Ok).setText("Tamam")
+        b.button(QDialogButtonBox.Cancel).setText("Vazgeç")
+        b.accepted.connect(self.accept)
+        b.rejected.connect(self.reject)
+        h.addWidget(b)
+        v.addLayout(h)
+        self.gorunum.degisti.connect(self._ozet)
+        self._ozet()
+
+    def boy(self, i: int) -> float:
+        import profil
+        c = self.ag.kenar_carpan[i] if i < len(self.ag.kenar_carpan) else 1
+        return profil.kenar_boyu(self.ag.kenarlar[i]) * c
+
+    def dikisler(self) -> List[list]:
+        return [[i, t, round(self.boy(i), 3)] for i, t in sorted(self.gorunum.secim.items())]
+
+    def _ozet(self):
+        d = self.dikisler()
+        tek = sum(x[2] for x in d if x[1] == 1)
+        cift = sum(x[2] for x in d if x[1] == 2)
+        self.ozet.setText(f"<b>{len(d)}</b> dikiş: tek taraflı {sayi(tek, 1)} mm, "
+                          f"<span style='color:#c81e1e'>iki taraflı {sayi(cift, 1)} mm (×2)</span> · "
+                          f"toplam kaynak <b>{sayi((tek + 2 * cift) / 1000, 3)} m</b>")
+
+    def _oneriler(self):
+        for i in self.ag.oneri:
+            self.gorunum.secim.setdefault(i, 1)
+        self.gorunum.update()
+        self._ozet()
+
+    def _temizle(self):
+        self.gorunum.secim.clear()
+        self.gorunum.update()
+        self._ozet()
 
 
 class KalipPenceresi(QDialog):
@@ -1576,8 +1769,14 @@ class AnaPencere(QMainWindow):
             h = QHBoxLayout()
             h.addWidget(sp, 1)
             oto = otomatik_miktar(k, i)
+            geo = getattr(k, "geo", None)
+            if i.kaynak == "kaynak" and isinstance(geo, Ag) and geo.kenarlar:
+                sec = QPushButton("Seç…")
+                sec.setToolTip("3D çizimde kaynak yapılacak kenarları seçin (iki taraflı da olabilir)")
+                sec.clicked.connect(lambda _=False: self._kaynak_sec(r))
+                h.addWidget(sec)
             if i.kaynak and oto is not None:
-                cb = QCheckBox(f"elle (çizimden {sayi(oto, 0)})")
+                cb = QCheckBox(f"elle (çizimden {sayi(oto, basamak)})")
                 cb.setChecked(elle)
                 sp.setEnabled(elle)
 
@@ -1595,6 +1794,18 @@ class AnaPencere(QMainWindow):
                 sp.valueChanged.connect(lambda x, ad=i.ad: yaz(ad, x if x else None))
             f.addRow(i.ad + (" (1: uygulanır)" if i.birim == "sabit" else ""), h)
         return g
+
+    def _kaynak_sec(self, r: int):
+        k = self.kalemler[r]
+        d = KaynakPenceresi(k.geo, k.kaynak.get("kaynak_dikisleri", []), self)
+        if d.exec() != QDialog.Accepted:
+            return
+        k.kaynak["kaynak_dikisleri"] = d.dikisler()
+        for i in self.ayar.islemler:  # elle girilmiş kaynak metresi çizimden gelene bırakılır
+            if i.kaynak == "kaynak":
+                k.islemler.pop(i.ad, None)
+        self._sonrasi(r)
+        self.ayrinti_alan.setWidget(self._ayrinti(r))
 
     def _ayrinti_sonuc(self, r: int):
         k = self.kalemler[r]

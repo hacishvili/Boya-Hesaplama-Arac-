@@ -1106,6 +1106,9 @@ class Govde:
         self.sac = None                     # profil.Sac: kalınlık, iki yüz, kesim kenarları (sac parçaysa)
         self.delikler: list = []            # profil.Delik: yuvarlak delik / havşa
         self.vurgu: List[List[V3]] = []     # deliklerin döngüleri (önizlemede renkli)
+        self.kenarlar: List[List[V3]] = []  # her kenar bir kez (kaynak dikişi seçimi için)
+        self.yardimci: List[List[V3]] = []  # silindir / koni yüzlerinin doğrultman çizgileri (yalnız görünüm)
+        self.yuz_bilgileri: list = []       # profil.YuzBilgi (temas / kaynak önerisi için)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -1157,6 +1160,7 @@ def govdeler(e) -> List[Govde]:
                 boyut = _boyut(yuzler)
                 bilgiler = []
                 dongu_bas = []  # yüzün döngülerinin g.donguler içindeki ilk sırası
+                gorulen_kenar = set()
                 tol = max(1e-6, boyut * 1e-6) * 50
                 for face in yuzler:
                     g.yuz_sayisi += 1
@@ -1171,6 +1175,14 @@ def govdeler(e) -> List[Govde]:
                         b = _yuz_bilgisi(a * olcek * olcek, dunya, yuzey, donus, olcek)
                         b.kenarlar = _dongu_kenarlari(face)
                         bilgiler.append(b)
+                        g.yardimci.extend(_dogrultmanlar(b))
+                        for kenar in _yuz_kenar_kayitlari(face):
+                            if id(kenar) not in gorulen_kenar:
+                                gorulen_kenar.add(id(kenar))
+                                try:
+                                    g.kenarlar.append([donus(q) for q in _kenar_noktalari(kenar, 8, tol, onbellek)])
+                                except AcisHatasi:
+                                    pass
                     except AcisHatasi as h:
                         turler[f"{ad}: {h}"] = turler.get(f"{ad}: {h}", 0) + 1
                         if len(g.tani) < 3 and yz is not None:
@@ -1188,6 +1200,7 @@ def govdeler(e) -> List[Govde]:
                         for i in dl.yuzler:
                             g.vurgu.extend(bilgiler[i].donguler)
                         g.vurgu.extend(dl.agiz)
+                    g.yuz_bilgileri = bilgiler
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:
@@ -1200,6 +1213,46 @@ def govdeler(e) -> List[Govde]:
         g = Govde()
         g.hata = "ACIS verisinde katı gövde yok"
         out.append(g)
+    return out
+
+
+def _dogrultmanlar(b) -> List[List[V3]]:
+    """Silindir / koni yüzünde 12 açıda doğrultman çizgisi (yüzün kapladığı açılarda); kenarı yalnız uç çemberleri
+    olan borunun görünüşü için."""
+    if b.tur != "koni" or b.eksen is None or b.merkez is None or not b.donguler:
+        return []
+    a, c = b.eksen, b.merkez
+    e1 = _birim(_dis(a, (1.0, 0.0, 0.0) if abs(a[0]) < 0.9 else (0.0, 1.0, 0.0)))
+    e2 = _dis(a, e1)
+    pts = [q for d in b.donguler for q in d]
+    hh = [_ic(_cik(q, c), a) for q in pts]
+    th = [math.atan2(_ic(_cik(q, c), e2), _ic(_cik(q, c), e1)) for q in pts]
+    out = []
+    for j in range(12):
+        t = 2 * math.pi * j / 12 - math.pi
+        yakin = [h for h, x in zip(hh, th) if abs(_sar(x - t)) < math.radians(8)]
+        if len(yakin) < 2 or max(yakin) - min(yakin) <= 1e-9:
+            continue
+        u = _top(_kat(e1, math.cos(t)), _kat(e2, math.sin(t)))
+        out.append([_top(_top(c, _kat(a, h)), _kat(u, b.r0 + b.egim * h)) for h in (min(yakin), max(yakin))])
+    return out
+
+
+def _yuz_kenar_kayitlari(face: Kayit) -> List[Kayit]:
+    out = []
+    loop = face.isaretciler()[2]
+    while loop is not None:
+        c = ilk = loop.isaretciler()[2]
+        adim = 0
+        while c is not None and adim < 100000:
+            cp = c.isaretciler()
+            if len(cp) > 4 and cp[4] is not None:
+                out.append(cp[4])
+            c = cp[1]
+            adim += 1
+            if c is ilk:
+                break
+        loop = loop.isaretciler()[1]
     return out
 
 
