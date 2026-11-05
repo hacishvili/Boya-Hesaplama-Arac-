@@ -27,7 +27,7 @@ import proje
 import rapor
 import stl_oku
 from geometri import Ag, Parca2D
-from hesap import (ISLEM_BIRIMLERI, ISLEM_KAYNAKLARI, Ayarlar, Islem, Kalem, Toz, agirlik_kg, islem_miktari,
+from hesap import (ISLEM_BIRIMLERI, ISLEM_KAYNAKLARI, Ayarlar, Islem, KaynakTeli, Kalem, Toz, agirlik_kg, islem_miktari,
                    otomatik_miktar, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, kaynak_hacmi,
                    ozet, sayi, teorik_kaplama, yontem_ozeti)
 from surum import SURUM
@@ -1115,6 +1115,21 @@ class AyarPenceresi(QDialog):
         self.metal = _cift(0.5, 25.0, ayar.metal_yogunluk, 2, 0.05, "g/cm³")
         self.metal.setToolTip("Parça ağırlığı için: çelik 7,85; paslanmaz 7,93; alüminyum 2,70")
         f.addRow("Metal yoğunluğu", self.metal)
+        t = ayar.kaynak_teli
+        self.tel_cap = _cift(0.3, 5.0, t.cap_mm, 2, 0.1, "mm")
+        self.tel_fiyat = _cift(0.0, 1e6, t.kg_fiyat, 2, 1, f"{ayar.para}/kg")
+        self.tel_makara = _cift(0.5, 1000.0, t.makara_kg, 1, 1, "kg")
+        self.tel_bilgi = QLabel()
+        h = QHBoxLayout()
+        for ad, w in (("çap", self.tel_cap), ("fiyat", self.tel_fiyat), ("makara", self.tel_makara)):
+            h.addWidget(QLabel(ad))
+            h.addWidget(w)
+        h.addStretch(1)
+        f.addRow("Kaynak teli", h)
+        f.addRow("", self.tel_bilgi)
+        for w in (self.tel_cap, self.tel_fiyat, self.tel_makara, self.metal):
+            w.valueChanged.connect(self._tel)
+        self._tel()
         self.oda = QLineEdit(ayar.oda_yolu)
         self.oda.setPlaceholderText(dxf_oku.oda_bul() or "bulunamadı — DWG için kurun")
         self.oda.setToolTip("DWG açmak için ücretsiz ODA File Converter. Boş bırakılırsa Program Files\\ODA altında "
@@ -1146,8 +1161,8 @@ class AyarPenceresi(QDialog):
         h.addStretch(1)
         v.addLayout(h)
         v.addWidget(QLabel("İşlem fiyatları (boya dışı: kaynak, havşa, polisaj ...); kalemde adet başına miktar girilir:"))
-        self.islem = QTableWidget(0, 4)
-        self.islem.setHorizontalHeaderLabels(["İşlem", "Birim", "Birim fiyat", "Miktar nereden"])
+        self.islem = QTableWidget(0, 5)
+        self.islem.setHorizontalHeaderLabels(["İşlem", "Birim", "Birim fiyat", "Miktar nereden", "Tel"])
         self.islem.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.islem.setColumnWidth(3, 200)
         self.islem.verticalHeader().hide()
@@ -1182,6 +1197,15 @@ class AyarPenceresi(QDialog):
             self.tablo.cellWidget(r, 1).setEnabled(not teorik)
             for c in (3, 4):
                 self.tablo.cellWidget(r, c).setEnabled(teorik)
+
+    def kaynak_teli(self) -> KaynakTeli:
+        return KaynakTeli(self.tel_cap.value(), self.tel_fiyat.value(), self.tel_makara.value())
+
+    def _tel(self, *_):
+        t, y = self.kaynak_teli(), self.metal.value()
+        self.tel_bilgi.setText(f"1 m kaynak = 1 m tel = {sayi(t.kg_m(y) * 1000, 2)} g → {sayi(t.kg_m(y) * t.kg_fiyat, 2)}"
+                               f" /m · 1 makara ≈ {sayi(t.makara_m(y), 0)} m kaynak. \"Tel\" işaretli işlemin metre "
+                               "fiyatına eklenir (birim fiyat: işçilik).")
 
     def _oda_sec(self):
         yol, _ = QFileDialog.getOpenFileName(self, "ODA File Converter", "", "ODAFileConverter (ODAFileConverter*)")
@@ -1222,6 +1246,10 @@ class AyarPenceresi(QDialog):
             kaynak.addItem(ad, k)
         kaynak.setCurrentIndex(max(0, kaynak.findData(i.kaynak)))
         self.islem.setCellWidget(r, 3, kaynak)
+        tel = QCheckBox()
+        tel.setChecked(i.tel)
+        tel.setToolTip("Metre fiyatına kaynak teli maliyeti eklenir (birim m olmalı)")
+        self.islem.setCellWidget(r, 4, tel)
 
     def islemler(self) -> List[Islem]:
         out = []
@@ -1229,7 +1257,8 @@ class AyarPenceresi(QDialog):
             ad = (self.islem.item(r, 0).text() or "").strip()
             if ad:
                 out.append(Islem(ad, self.islem.cellWidget(r, 1).currentText(), self.islem.cellWidget(r, 2).value(),
-                                 self.islem.cellWidget(r, 3).currentData() or ""))
+                                 self.islem.cellWidget(r, 3).currentData() or "",
+                                 self.islem.cellWidget(r, 4).isChecked()))
         return out
 
     def _sil(self):
@@ -1253,7 +1282,7 @@ class AyarPenceresi(QDialog):
                     verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
                     para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(),
                     guncelleme=self.guncelleme.isChecked(), metal_yogunluk=self.metal.value(), tozlar=[],
-                    islemler=self.islemler())
+                    islemler=self.islemler(), kaynak_teli=self.kaynak_teli())
         for r in range(self.tablo.rowCount()):
             w = lambda c: self.tablo.cellWidget(r, c).value()
             a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), yogunluk=w(3), fiyat=w(2), kalinlik_um=w(4),
@@ -1453,6 +1482,9 @@ class AnaPencere(QMainWindow):
             f"{tozlar}<br>Toz {sayi(o.toz_tl, 2)} {p} + proses {sayi(o.proses_tl, 2)} {p}"
             + (" + işlem " + " · ".join(f"{html.escape(ad)} {sayi(tl, 2)}" for ad, (_, tl) in o.islem_bazinda.items())
                + f" {p}" if o.islem_tl else "")
+            + (f" (kaynak teli {sayi(o.tel_kg, 2)} kg ≈ "
+               f"{sayi(o.tel_kg / self.ayar.kaynak_teli.makara_kg if self.ayar.kaynak_teli.makara_kg else 0, 2)} makara)"
+               if o.tel_kg else "")
             + f" = <b>{sayi(o.tutar, 2)} {p}</b>"
             f" · Ağırlık <b>{sayi(o.agirlik_kg, 1)} kg</b>"
             + (f" ({o.agirliksiz} kalemin ağırlığı bilinmiyor)" if o.agirliksiz else "") + uyari)
@@ -1765,7 +1797,9 @@ class AnaPencere(QMainWindow):
             m, elle = islem_miktari(k, i)
             basamak = 0 if i.birim in ("adet", "sabit") else 3
             sp = _cift(0.0, 1e6, m, basamak, 1 if basamak == 0 else 0.1, "" if i.birim == "sabit" else i.birim)
-            sp.setToolTip(f"Birim fiyat {sayi(i.fiyat, 2)} {p}/{i.birim} (Ayarlar)")
+            sp.setToolTip(f"Birim fiyat {sayi(self.ayar.birim_fiyati(i), 2)} {p}/{i.birim}"
+                          + (f" (işçilik {sayi(i.fiyat, 2)} + tel {sayi(self.ayar.tel_tl_m, 2)})" if i.tel else "")
+                          + " (Ayarlar)")
             h = QHBoxLayout()
             h.addWidget(sp, 1)
             oto = otomatik_miktar(k, i)

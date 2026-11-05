@@ -64,7 +64,11 @@ def csv_yaz(yol: str, kalemler: List[Kalem], a: Ayarlar) -> None:
     for ad, (m, tl) in o.islem_bazinda.items():
         i = next((x for x in a.islemler if x.ad == ad), None)
         satir.append([f"İşlem: {ad}", f"{sayi(m, 3)} {i.birim if i else ''}",
-                      f"{sayi(i.fiyat if i else 0, 2)} {a.para}/{i.birim if i else ''}", f"{sayi(tl, 2)} {a.para}"])
+                      f"{sayi(a.birim_fiyati(i) if i else 0, 2)} {a.para}/{i.birim if i else ''}", f"{sayi(tl, 2)} {a.para}"])
+    if o.tel_kg:
+        t = a.kaynak_teli
+        satir.append(["Kaynak teli", f"{sayi(o.tel_kg, 3)} kg", f"{sayi(t.cap_mm, 1)} mm, {sayi(t.kg_fiyat, 2)} {a.para}/kg",
+                      f"{sayi(o.tel_kg / t.makara_kg if t.makara_kg else 0, 2)} makara ({sayi(t.makara_kg, 0)} kg)"])
     with open(yol, "w", encoding="utf-8-sig", newline="") as f:
         for s in satir:
             f.write(";".join(hucre(x) for x in s) + "\r\n")
@@ -96,10 +100,13 @@ def html_rapor(kalemler: List[Kalem], a: Ayarlar, musteri: str = "", baslik: str
     birim = {i.ad: i for i in a.islemler}
     islemler = "".join(
         f"<tr><td>{e(ad)}</td><td align=right>{sayi(m, 3)} {e(birim[ad].birim if ad in birim else '')}</td>"
-        f"<td align=right>{sayi(birim[ad].fiyat if ad in birim else 0, 2)} {e(a.para)}</td>"
+        f"<td align=right>{sayi(a.birim_fiyati(birim[ad]) if ad in birim else 0, 2)} {e(a.para)}</td>"
         f"<td align=right>{sayi(tl, 2)} {e(a.para)}</td></tr>" for ad, (m, tl) in o.islem_bazinda.items())
+    t = a.kaynak_teli
+    tel = (f"<p>Kaynak teli ({sayi(t.cap_mm, 1)} mm, {sayi(t.kg_fiyat, 2)} {e(a.para)}/kg): {sayi(o.tel_kg, 3)} kg"
+           f" ≈ {sayi(o.tel_kg / t.makara_kg if t.makara_kg else 0, 2)} makara</p>" if o.tel_kg else "")
     islem_tablosu = (f"<p><b>İşlemler</b></p><table><tr><th>İşlem</th><th>Miktar</th><th>Birim fiyat</th>"
-                     f"<th>Tutar</th></tr>{islemler}</table>" if islemler else "")
+                     f"<th>Tutar</th></tr>{islemler}</table>" + tel if islemler else "")
     formul = ("Toz = alan ÷ sarfiyat (1 kg tozla boyanan m², fire dahil)." if a.pratik else
               "Toz = alan × kalınlık × yoğunluk ÷ transfer verimi.")
     return f"""<html><head><meta charset="utf-8"><style>

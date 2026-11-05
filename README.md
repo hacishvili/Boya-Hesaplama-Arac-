@@ -95,7 +95,11 @@ birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına mikta
 ("elle" işaretlenince değiştirilir). Kaynak metresi 3D çizimden seçilir ("Seç…"): parçanın kenarları döndürülüp
 yakınlaştırılabilen pencerede gösterilir, tıklanan kenar tek taraflı → iki taraflı (×2) → kaldır olarak değişir.
 Birbirine değen katılarda (ör. sacın üstüne dikilmiş boru) değme kenarları kaynak yeri olarak önerilir ve içe
-aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sayılır. Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
+aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sayılır.
+Kaynak teli (Ayarlar): çap, kg fiyatı ve makara ağırlığı girilir. Dikiş boyu kadar tel harcandığı kabul edilir:
+tel (kg) = π·(çap/2)²·boy·metal yoğunluğu; 0,8 mm çelik telde 1 m kaynak ≈ 3,95 g, 110 TL/kg ile ≈ 0,43 TL.
+"Tel" işaretli işlemin metre fiyatına bu tutar eklenir (birim fiyat işçilik olarak kalır); alt toplamda ve
+raporda harcanan tel (kg, makara) gösterilir. Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
 fiyat × adet`; tabloda ve raporlarda adet fiyatı ve işlem dökümü yer alır.
 
 **Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,

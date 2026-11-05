@@ -378,6 +378,9 @@ class Arayuz(unittest.TestCase):
         d = pencere.AyarPenceresi(w.ayar)
         self.assertEqual([i.ad for i in d.islemler()], ["Kaynak", "Havşa", "Polisaj"])
         d.islem.cellWidget(0, 2).setValue(40.0)   # kaynak 40 / m
+        self.assertTrue(d.islem.cellWidget(0, 4).isChecked())   # kaynak teli eklenir
+        self.assertIn("1 makara", d.tel_bilgi.text())
+        d.tel_fiyat.setValue(0.0)                 # bu testte yalnız işçilik
         d.islem.cellWidget(1, 2).setValue(2.5)    # havşa 2,5 / adet
         d._islem_satiri(pencere.Islem("Kumlama", "m²", 50.0))
         w.ayar = d.ayar()

@@ -123,6 +123,7 @@ class Toz_(unittest.TestCase):
         fiyat = {"Kaynak": 40.0, "Havşa": 2.5, "Polisaj": 300.0}
         for i in a.islemler:
             i.fiyat = fiyat[i.ad]
+            i.tel = False                     # tel maliyeti test_kaynak_teli'de
         delik = [{"cap": 6, "havsa_cap": 12, "havsa_aci": 90, "alan": 1, "duvar": 1}] * 3 + \
                 [{"cap": 6, "havsa_cap": 12, "havsa_aci": 0, "alan": 1, "duvar": 1}, {"cap": 8, "alan": 1, "duvar": 1}]
         k = hesap.Kalem("ayak", {"tur": "3d", "alan": 1e5, "delikler": delik}, adet=10)
@@ -153,6 +154,24 @@ class Toz_(unittest.TestCase):
         k.islemler = {"Kaynak": -1}
         with self.assertRaises(ValueError):
             hesap.kalem_sonucu(k, a)
+
+    def test_kaynak_teli(self):
+        a = hesap.Ayarlar()                   # 0,8 mm tel, 110 TL/kg, 15 kg makara, çelik 7,85
+        kg_m = math.pi * 0.4 ** 2 * 1000 * 7.85e-6
+        self.assertAlmostEqual(a.kaynak_teli.kg_m(7.85), kg_m)
+        self.assertAlmostEqual(a.tel_tl_m, kg_m * 110)
+        self.assertAlmostEqual(a.kaynak_teli.makara_m(7.85), 15 / kg_m)
+        a.islemler[0].fiyat = 20.0            # işçilik / m; tel üstüne eklenir
+        k = hesap.Kalem("ayak", {"tur": "elle", "alan_m2": 0.1, "kaynak_dikisleri": [[0, 2, 250.0], [3, 1, 500.0]]},
+                        adet=4)
+        s = hesap.kalem_sonucu(k, a)          # 2·250 + 500 = 1 m / adet
+        self.assertAlmostEqual(s.islem_detay["Kaynak"][1], 4 * 1.0 * (20 + kg_m * 110))
+        self.assertAlmostEqual(s.tel_kg, 4 * kg_m)
+        self.assertAlmostEqual(hesap.ozet([k, k], a).tel_kg, 8 * kg_m)
+        b = hesap.Ayarlar.sozlukten({**a.sozluk(), "kaynak_teli": {"cap_mm": 1.0, "kg_fiyat": 90, "makara_kg": 5}})
+        self.assertEqual((b.kaynak_teli.cap_mm, b.kaynak_teli.kg_fiyat, b.kaynak_teli.makara_kg), (1.0, 90.0, 5.0))
+        self.assertTrue(b.islemler[0].tel)
+        self.assertIn("Kaynak teli", rapor.html_rapor([k], a))
 
     def test_sayi(self):
         self.assertEqual(sayi(1234567.891, 2), "1.234.567,89")

@@ -12,6 +12,8 @@ ve %) düşülür; kat sayısı tozu ve prosesi çarpar (astar + son kat: 2). A�
 Kaynakta hesaba yetecek sayılar saklanır (çizim dosyası olmadan da proje açılır ve yeniden hesaplanır)."""
 from __future__ import annotations
 
+import math
+
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,10 +45,28 @@ class Islem:
     birim: str = "adet"          # ISLEM_BIRIMLERI; "sabit": miktar 1 sayılır (adet başına sabit ücret)
     fiyat: float = 0.0           # birim başına
     kaynak: str = ""             # ISLEM_KAYNAKLARI: miktar çizimden gelir (elle değiştirilebilir)
+    tel: bool = False            # metre fiyatına kaynak teli maliyeti eklenir (Ayarlar.kaynak_teli)
+
+
+@dataclass
+class KaynakTeli:
+    """Kaynakta harcanan tel: dikiş boyu kadar tel (π·(çap/2)²·boy · metal yoğunluğu)."""
+    cap_mm: float = 0.8
+    kg_fiyat: float = 110.0
+    makara_kg: float = 15.0
+
+    def kg_m(self, yogunluk: float) -> float:
+        """1 m kaynakta harcanan tel (kg)."""
+        return math.pi * (self.cap_mm / 2) ** 2 * 1000.0 * yogunluk * 1e-6
+
+    def makara_m(self, yogunluk: float) -> float:
+        """Bir makarayla çekilebilen kaynak boyu (m)."""
+        k = self.kg_m(yogunluk)
+        return self.makara_kg / k if k else 0.0
 
 
 def varsayilan_islemler() -> List[Islem]:
-    return [Islem("Kaynak", "m", kaynak="kaynak"), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
+    return [Islem("Kaynak", "m", kaynak="kaynak", tel=True), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
 
 
 def kaynak_boyu_mm(k: Dict[str, Any]) -> Optional[float]:
@@ -67,12 +87,21 @@ class Ayarlar:
     guncelleme: bool = True      # açılışta GitHub'da yeni sürüm denetlenir
     metal_yogunluk: float = 7.85  # g/cm³ (çelik; alüminyum 2,70, paslanmaz 7,93), ağırlık için
     islemler: List[Islem] = field(default_factory=varsayilan_islemler)
+    kaynak_teli: KaynakTeli = field(default_factory=KaynakTeli)
     tozlar: List[Toz] = field(default_factory=lambda: [
         Toz("Polyester (dış mekân)", 1.5, 0.0, 70.0, 6.0),
         Toz("Epoksi-polyester (iç mekân)", 1.45, 0.0, 60.0, 6.0),
         Toz("Epoksi", 1.5, 0.0, 70.0, 6.0),
         Toz("Metalik / efektli", 1.4, 0.0, 70.0, 6.0),
     ])
+
+    def birim_fiyati(self, i: Islem) -> float:
+        """İşlemin birim fiyatı; tel işaretliyse metre başına tel maliyeti eklenir."""
+        return i.fiyat + (self.tel_tl_m if i.tel else 0.0)
+
+    @property
+    def tel_tl_m(self) -> float:
+        return self.kaynak_teli.kg_m(self.metal_yogunluk) * self.kaynak_teli.kg_fiyat
 
     @property
     def pratik(self) -> bool:
@@ -99,7 +128,10 @@ class Ayarlar:
         a.metal_yogunluk = float(d.get("metal_yogunluk", 7.85))
         if isinstance(d.get("islemler"), list):
             a.islemler = [Islem(str(x["ad"]), str(x.get("birim", "adet")), float(x.get("fiyat", 0.0)),
-                                str(x.get("kaynak", ""))) for x in d["islemler"]]
+                                str(x.get("kaynak", "")), bool(x.get("tel", False))) for x in d["islemler"]]
+        t = d.get("kaynak_teli") or {}
+        a.kaynak_teli = KaynakTeli(float(t.get("cap_mm", 0.8)), float(t.get("kg_fiyat", 110.0)),
+                                   float(t.get("makara_kg", 15.0)))
         if d.get("tozlar"):
             a.tozlar = [Toz(str(t["ad"]), float(t.get("yogunluk", 1.5)), float(t.get("fiyat", 0.0)),
                             float(t.get("kalinlik_um", 70.0)), float(t.get("sarfiyat_m2_kg", 6.0)))
@@ -251,6 +283,7 @@ class Sonuc:
     agirlik_elle: bool = False
     islem_tl: float = 0.0                     # toplam (adet ile)
     islem_detay: Dict[str, Tuple[float, float]] = field(default_factory=dict)  # ad → (adet başına miktar, toplam)
+    tel_kg: float = 0.0          # harcanan kaynak teli (toplam)
 
     @property
     def tutar(self) -> float:
@@ -317,9 +350,11 @@ def kalem_sonucu(k: Kalem, a: Ayarlar) -> Sonuc:
         if m < 0:
             raise ValueError(f"{i.ad}: miktar eksi olamaz.")
         if m:
-            tl = m * i.fiyat * k.adet
+            tl = m * a.birim_fiyati(i) * k.adet
             s.islem_detay[i.ad] = (m, tl)
             s.islem_tl += tl
+            if i.tel:
+                s.tel_kg += m * a.kaynak_teli.kg_m(a.metal_yogunluk) * k.adet
     return s
 
 
@@ -335,6 +370,7 @@ class Ozet:
     islem_tl: float = 0.0
     islem_bazinda: Dict[str, Tuple[float, float]] = field(default_factory=dict)  # ad → (toplam miktar, tutar)
     agirliksiz: int = 0          # ağırlığı bilinmeyen kalem sayısı
+    tel_kg: float = 0.0          # kaynak teli (toplam)
 
     @property
     def tutar(self) -> float:
@@ -351,6 +387,7 @@ def ozet(kalemler: List[Kalem], a: Ayarlar) -> Ozet:
         o.toz_tl += s.toz_tl
         o.proses_tl += s.proses_tl
         o.islem_tl += s.islem_tl
+        o.tel_kg += s.tel_kg
         for ad, (m, tl) in s.islem_detay.items():
             m0, tl0 = o.islem_bazinda.get(ad, (0.0, 0.0))
             o.islem_bazinda[ad] = (m0 + m * k.adet, tl0 + tl)
