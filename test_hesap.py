@@ -172,6 +172,12 @@ class Toz_(unittest.TestCase):
         self.assertEqual((b.kaynak_teli.cap_mm, b.kaynak_teli.kg_fiyat, b.kaynak_teli.makara_kg), (1.0, 90.0, 5.0))
         self.assertTrue(b.islemler[0].tel)
         self.assertIn("Kaynak teli", rapor.html_rapor([k], a))
+        a.islemler[0].birim = "mm"                                     # mm fiyatı: miktar 1000 mm / adet
+        a.islemler[0].fiyat = 0.02                                     # = 20 / m
+        s2 = hesap.kalem_sonucu(k, a)
+        self.assertAlmostEqual(s2.islem_detay["Kaynak"][0], 1000.0)
+        self.assertAlmostEqual(s2.islem_detay["Kaynak"][1], s.islem_detay["Kaynak"][1])
+        self.assertAlmostEqual(s2.tel_kg, s.tel_kg)
 
     def test_yuzey_secimi(self):
         a = hesap.Ayarlar()

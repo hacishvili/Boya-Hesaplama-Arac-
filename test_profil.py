@@ -212,6 +212,12 @@ class Profil(unittest.TestCase):
         self.assertAlmostEqual(p.uc, 2 * math.pi * (R * R - r * r), places=4)
         self.assertAlmostEqual(p.bosluk, 2 * r, delta=0.01)
         self.assertAlmostEqual(p.kesit_alani, math.pi * (R * R - r * r), delta=1e-3 * math.pi * (R * R - r * r))
+        # görünüm: iç yüz ve iç çemberler gizli (et kalınlığı çizilmez); alan değişmez
+        self.assertEqual(len(a.ag.kenarlar), 2)                          # yalnız dış çemberler
+        self.assertTrue(all(abs(math.hypot(q[0], q[1]) - R) < 1e-6 for k in a.ag.kenarlar for q in k))
+        self.assertTrue(all(abs(math.hypot(q[0], q[1]) - R) < 1e-6 for d in a.ag.yuzler for q in d))
+        self.assertEqual(len(a.ag.yuz_alanlari), 3)                      # dış yüz + iki uç (seçilebilir)
+        self.assertTrue(all(abs(math.hypot(q[0], q[1]) - R) < 1e-6 for y in a.ag.yardimci for q in y))
 
     def test_sac_kalinligi_modelden(self):
         from ezdxf.render import forms

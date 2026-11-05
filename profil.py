@@ -67,6 +67,7 @@ class Profil:
     bosluk: float = 0.0               # boşluğun en büyük kesit ölçüsü (iç boya derinliği varsayılanı)
     koni: Optional[Dict] = None       # dış yüzü koni / silindirse açınım ölçüleri: d1, d2 (dış), boy, t
     kesit_alani: float = 0.0          # ortadaki kesitin metal alanı (dış kontur − boşluklar), mm²; 0: kurulamadı
+    ic_yuzler: List[int] = field(default_factory=list)  # iç (boşluk) yüzlerinin sırası (görünümde gizlenir)
 
     @property
     def ic_alan(self) -> float:
@@ -221,6 +222,7 @@ def coz(yuzler: Sequence[YuzBilgi], oran: float = 2.5) -> Optional[Profil]:
             if ic:
                 ss = [_ic(q, a) for d in y.donguler for q in d]
                 pr.ic.append((y.alan, (max(ss) - min(ss)) if ss else boy))
+                pr.ic_yuzler.append(i)
                 ic_koni.append(y)
             else:
                 pr.dis += y.alan

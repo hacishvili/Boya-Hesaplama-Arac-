@@ -95,14 +95,18 @@ birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına mikta
 ("elle" işaretlenince değiştirilir). Kaynak metresi 3D çizimden seçilir ("Seç…"): parçanın kenarları döndürülüp
 yakınlaştırılabilen pencerede gösterilir, tıklanan kenar tek taraflı → iki taraflı (×2) → kaldır olarak değişir.
 Pencerede fare CAD programlarındaki gibi: tekerlek imlecin altındaki noktaya yakınlaştırır, sol tuşla sürüklemek
-döndürür, orta (ya da sağ) tuşla sürüklemek kaydırır, orta tuşa çift tık ya da F tuşu parçayı sığdırır.
+seçim penceresi çizer (soldan sağa: tamamı içinde kalanlar, sağdan sola: değenler; Shift basılıyken seçimden
+çıkarır), sağ tuşla (ya da Shift + orta) sürüklemek döndürür, orta tuşla sürüklemek kaydırır, orta tuşa çift tık ya da
+F tuşu parçayı sığdırır. Profil ve borularda iç yüzler (et kalınlığı) gösterilmez, yalnız dış görünür; alan
+hesabında iç yüzey ayarlandığı gibi sayılır.
 Seçilen dikişler (kırmızı: tek taraflı, mor: iki taraflı) ve yüzeyler (yeşil) kalemin alttaki önizlemesinde de
 gösterilir.
 Birbirine değen katılarda (ör. sacın üstüne dikilmiş boru) değme kenarları kaynak yeri olarak önerilir ve içe
 aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sayılır.
 Kaynak teli (Ayarlar): çap, kg fiyatı ve makara ağırlığı girilir. Dikiş boyu kadar tel harcandığı kabul edilir:
 tel (kg) = π·(çap/2)²·boy·metal yoğunluğu; 0,8 mm çelik telde 1 m kaynak ≈ 3,95 g, 110 TL/kg ile ≈ 0,43 TL.
-"Tel" işaretli işlemin metre fiyatına bu tutar eklenir (birim fiyat işçilik olarak kalır); alt toplamda ve
+Kaynak fiyatı metre ya da mm başına girilebilir (Ayarlar → işlem birimi "m" / "mm"); kalemde boy iki
+birimde de gösterilir. "Tel" işaretli işlemin boy fiyatına bu tutar eklenir (birim fiyat işçilik olarak kalır); alt toplamda ve
 raporda harcanan tel (kg, makara) gösterilir.
 Polisaj alanı 3D çizimden seçilir ("Seç…"): parça yüz yüz gösterilir, tıklanan yüz (ya da sağdaki listede
 işaretlenen) seçilir ve seçili yüzlerin alanı m² olarak polisaj miktarına yazılır; seçim yapılmadıkça parçanın

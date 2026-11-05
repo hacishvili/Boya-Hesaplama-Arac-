@@ -34,7 +34,8 @@ class Toz:
         return teorik_kaplama(self.yogunluk, self.kalinlik_um)
 
 
-ISLEM_BIRIMLERI = ("adet", "m", "m²", "kg", "dk", "sabit")
+ISLEM_BIRIMLERI = ("adet", "m", "mm", "m²", "kg", "dk", "sabit")
+BOY_BIRIMI = {"m": 1.0, "mm": 0.001}   # boy birimleri: metre karşılığı
 ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı", "kaynak": "çizimden: kaynak dikişleri (m)",
                     "yuzey": "çizimden: seçili yüzeyler (m²)"}
 
@@ -105,7 +106,7 @@ class Ayarlar:
 
     def birim_fiyati(self, i: Islem) -> float:
         """İşlemin birim fiyatı; tel işaretliyse metre başına tel maliyeti eklenir."""
-        return i.fiyat + (self.tel_tl_m if i.tel else 0.0)
+        return i.fiyat + (self.tel_tl_m * BOY_BIRIMI.get(i.birim, 1.0) if i.tel else 0.0)
 
     @property
     def tel_tl_m(self) -> float:
@@ -311,7 +312,7 @@ def otomatik_miktar(k: "Kalem", islem: Islem) -> Optional[float]:
         return float(sum(1 for d in k.kaynak.get("delikler", []) if d.get("havsa_cap") and d.get("havsa_aci")))
     if islem.kaynak == "kaynak":
         b = kaynak_boyu_mm(k.kaynak)
-        return None if b is None else b / 1000.0
+        return None if b is None else b / 1000.0 / BOY_BIRIMI.get(islem.birim, 1.0)
     if islem.kaynak == "yuzey":
         b = secili_yuzey_mm2(k.kaynak, islem.ad)
         return None if b is None else b / 1e6
@@ -365,7 +366,7 @@ def kalem_sonucu(k: Kalem, a: Ayarlar) -> Sonuc:
             s.islem_detay[i.ad] = (m, tl)
             s.islem_tl += tl
             if i.tel:
-                s.tel_kg += m * a.kaynak_teli.kg_m(a.metal_yogunluk) * k.adet
+                s.tel_kg += m * BOY_BIRIMI.get(i.birim, 1.0) * a.kaynak_teli.kg_m(a.metal_yogunluk) * k.adet
     return s
 
 

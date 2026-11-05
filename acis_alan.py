@@ -1125,6 +1125,7 @@ class Govde:
         self.kenarlar: List[List[V3]] = []  # her kenar bir kez (kaynak dikişi seçimi için)
         self.yardimci: List[List[V3]] = []  # silindir / koni yüzlerinin doğrultman çizgileri (yalnız görünüm)
         self.yuz_bilgileri: list = []       # profil.YuzBilgi (temas / kaynak önerisi için)
+        self.gizli_yuzler: set = set()      # görünümde gösterilmeyen yüzler (profil / borunun içi)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -1181,6 +1182,7 @@ def kayit_govdeleri(kayitlar: Sequence[Kayit]) -> List[Govde]:
                 bilgiler = []
                 dongu_bas = []  # yüzün döngülerinin g.donguler içindeki ilk sırası
                 gorulen_kenar = set()
+                kenar_idleri: List[int] = []   # g.kenarlar ile aynı sırada kenar kaydı kimliği
                 tol = max(1e-6, boyut * 1e-6) * 50
                 for face in yuzler:
                     g.yuz_sayisi += 1
@@ -1201,6 +1203,7 @@ def kayit_govdeleri(kayitlar: Sequence[Kayit]) -> List[Govde]:
                                 gorulen_kenar.add(id(kenar))
                                 try:
                                     g.kenarlar.append([donus(q) for q in _kenar_noktalari(kenar, 8, tol, onbellek)])
+                                    kenar_idleri.append(id(kenar))
                                 except AcisHatasi:
                                     pass
                     except AcisHatasi as h:
@@ -1221,6 +1224,8 @@ def kayit_govdeleri(kayitlar: Sequence[Kayit]) -> List[Govde]:
                             g.vurgu.extend(bilgiler[i].donguler)
                         g.vurgu.extend(dl.agiz)
                     g.yuz_bilgileri = bilgiler
+                    if g.profil is not None and g.profil.ic_yuzler:
+                        _ici_gizle(g, bilgiler, kenar_idleri)
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:
@@ -1234,6 +1239,28 @@ def kayit_govdeleri(kayitlar: Sequence[Kayit]) -> List[Govde]:
         g.hata = "ACIS verisinde katı gövde yok"
         out.append(g)
     return out
+
+
+def _ici_gizle(g: Govde, bilgiler: list, kenar_idleri: List[int]) -> None:
+    """Profil / borunun iç yüzleri görünümden çıkar (et kalınlığı çizilmez, yalnız dış): iç yüzlere değen kenarlar,
+    döngüler ve doğrultmanlar. Alan ve kaynak önerisi bütün yüzlerle hesaplanır."""
+    ic = set(g.profil.ic_yuzler)
+    gizli = set()
+    for i in ic:
+        for k in bilgiler[i].kenarlar:
+            gizli |= k
+    g.gizli_yuzler = ic
+    g.kenarlar = [k for k, i in zip(g.kenarlar, kenar_idleri) if i not in gizli]
+    gorunur = lambda i, j: i not in ic and not (j < len(bilgiler[i].kenarlar) and bilgiler[i].kenarlar[j] & gizli)
+    g.donguler = [d for i, b in enumerate(bilgiler) for j, d in enumerate(b.donguler) if gorunur(i, j)]
+    g.yardimci = [l for i, b in enumerate(bilgiler) if i not in ic for l in _dogrultmanlar(b)]
+    vurgu = []
+    for dl in g.delikler:
+        for i in dl.yuzler:
+            if i not in ic:
+                vurgu.extend(d for j, d in enumerate(bilgiler[i].donguler) if gorunur(i, j))
+        vurgu.extend(dl.agiz)
+    g.vurgu = vurgu
 
 
 def _dogrultmanlar(b) -> List[List[V3]]:
