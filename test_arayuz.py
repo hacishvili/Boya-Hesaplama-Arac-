@@ -279,6 +279,33 @@ class Arayuz(unittest.TestCase):
         self.assertEqual([k.adet for k in w.kalemler], [5, 5, 5])
         self.assertEqual(w.tablo.item(2, 2).text(), "5")
 
+    def test_kat_maske_ve_agirlik_paneli(self):
+        w = pencere.AnaPencere()
+        w.kalemler.append(pencere.Kalem("boru", {"tur": "kalip", "kalip": "Yuvarlak boru", "deger": {}},
+                                        toz=w.ayar.tozlar[0].ad))
+        w.kalemler.append(pencere.Kalem("elle", {"tur": "elle", "alan_m2": 0.1}, toz=w.ayar.tozlar[0].ad))
+        w._yenile(0)
+        self.assertNotEqual(w.tablo.item(0, 9).text(), "—")   # kalıbın ağırlığı hesaplanır
+        self.assertEqual(w.tablo.item(1, 9).text(), "—")
+        self.assertIn("1 kalemin ağırlığı bilinmiyor", w.toplam.text())
+        panel = w.ayrinti_alan.widget()
+        kat = [s for s in panel.findChildren(pencere.QSpinBox) if s.toolTip().startswith("Astar")][0]
+        kat.setValue(2)
+        self.assertEqual(w.kalemler[0].kat, 2)
+        self.assertIn("2 kat", w.tablo.item(0, 1).text())
+        w.tablo.selectRow(1)
+        w._secim()
+        panel = w.ayrinti_alan.widget()
+        elle = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "Elle gir"][0]
+        elle.setChecked(True)
+        agk = [s for s in panel.findChildren(pencere.QDoubleSpinBox) if s.suffix().strip() == "kg"][0]
+        agk.setValue(2.5)
+        self.assertEqual(w.kalemler[1].agirlik_kg, 2.5)
+        self.assertEqual(w.tablo.item(1, 9).text(), "2,500")
+        self.assertNotIn("bilinmiyor", w.toplam.text())
+        w.degisti = False
+        w.close()
+
     def test_coklu_secimle_toz(self):
         w = pencere.AnaPencere()
         for i in range(3):

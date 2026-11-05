@@ -26,8 +26,8 @@ import proje
 import rapor
 import stl_oku
 from geometri import Ag, Parca2D
-from hesap import (Ayarlar, Kalem, Toz, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, ozet, sayi, teorik_kaplama,
-                   yontem_ozeti)
+from hesap import (Ayarlar, Kalem, Toz, agirlik_kg, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, kaynak_hacmi,
+                   ozet, sayi, teorik_kaplama, yontem_ozeti)
 from surum import SURUM
 
 UYGULAMA = "Toz Boya Hesabı"
@@ -278,8 +278,11 @@ class IceAktar(QDialog):
                 uyarilar.append(u)
             for i, g in enumerate(govdeler):
                 ad = self.dosya_adi + (f" – gövde {i + 1}" if len(govdeler) > 1 else "")
-                self.ogeler.append(("3d", g, {"tur": "3d", "alan": g.alan, "kapali": g.kapali_mi(),
-                                              "katsayi": 2.0 if g.sac_yuzeyi_mi() else 1.0, "varlik": "STL"}, ad, ""))
+                kaynak = {"tur": "3d", "alan": g.alan, "kapali": g.kapali_mi(),
+                          "katsayi": 2.0 if g.sac_yuzeyi_mi() else 1.0, "varlik": "STL"}
+                if g.hacim():
+                    kaynak["hacim"] = g.hacim()
+                self.ogeler.append(("3d", g, kaynak, ad, ""))
         else:
             haric = [self.katmanlar.item(i).text() for i in range(self.katmanlar.count())
                      if self.katmanlar.item(i).checkState() != Qt.Checked]
@@ -301,6 +304,8 @@ class IceAktar(QDialog):
                 kaynak = None if g.hata else {"tur": "3d", "alan": g.alan, "kapali": g.kapali,
                                               "katsayi": 2.0 if g.ag is not None and g.ag.sac_yuzeyi_mi() else 1.0,
                                               "varlik": g.tur}
+                if kaynak and g.ag is not None and g.ag.hacim():
+                    kaynak["hacim"] = g.ag.hacim()  # kapalı çokgen ağ (3DFACE / polyface / mesh)
                 if kaynak and g.sac is not None:
                     kaynak["sac"] = g.sac.sozluk()
                 if kaynak and g.profil is not None:
@@ -488,15 +493,19 @@ class IceAktar(QDialog):
 
     def _birlesik_kalem(self, satirlar: List[int]) -> Kalem:
         """Seçili 3D gövdeler tek kalem: adet başına alan = Σ (gövde alanı × gövde adedi); adet 1."""
-        toplam, kapali, geolar = 0.0, True, []
+        toplam, kapali, geolar, hacim = 0.0, True, [], 0.0
         for r in satirlar:
             _, geo, kaynak, _, _ = self.ogeler[r]
             toplam += kaynak_alani(kaynak) * self.tablo.cellWidget(r, 5).value()
+            h = kaynak_hacmi(kaynak)
+            hacim = None if h is None or hacim is None else hacim + h * self.tablo.cellWidget(r, 5).value()
             kapali = kapali and bool(kaynak.get("kapali", True))
             if isinstance(geo, Ag) and geo.yuzler:
                 geolar.append(geo)
         kaynak = {"tur": "3d", "alan": toplam, "kapali": kapali, "katsayi": 1.0,
                   "varlik": f"birleşik, {len(satirlar)} gövde"}
+        if hacim:
+            kaynak["hacim"] = hacim
         k = Kalem(self.dosya_adi, kaynak, toz=self.toz, dosya=self.yol)
         k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi) if geolar else None
         return k
@@ -897,6 +906,9 @@ class AyarPenceresi(QDialog):
         self.para = QLineEdit(ayar.para)
         self.para.setMaximumWidth(80)
         f.addRow("Para birimi", self.para)
+        self.metal = _cift(0.5, 25.0, ayar.metal_yogunluk, 2, 0.05, "g/cm³")
+        self.metal.setToolTip("Parça ağırlığı için: çelik 7,85; paslanmaz 7,93; alüminyum 2,70")
+        f.addRow("Metal yoğunluğu", self.metal)
         self.oda = QLineEdit(ayar.oda_yolu)
         self.oda.setPlaceholderText(dxf_oku.oda_bul() or "bulunamadı — DWG için kurun")
         self.oda.setToolTip("DWG açmak için ücretsiz ODA File Converter. Boş bırakılırsa Program Files\\ODA altında "
@@ -988,7 +1000,7 @@ class AyarPenceresi(QDialog):
         a = Ayarlar(yontem="teorik" if self.yontem.currentIndex() == 1 else "pratik",
                     verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
                     para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(),
-                    guncelleme=self.guncelleme.isChecked(), tozlar=[])
+                    guncelleme=self.guncelleme.isChecked(), metal_yogunluk=self.metal.value(), tozlar=[])
         for r in range(self.tablo.rowCount()):
             w = lambda c: self.tablo.cellWidget(r, c).value()
             a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), yogunluk=w(3), fiyat=w(2), kalinlik_um=w(4),
@@ -999,7 +1011,7 @@ class AyarPenceresi(QDialog):
 # ---------------------------------------------------------------- ana pencere
 
 SUTUNLAR = ["Parça", "Açıklama", "Adet", "Alan / adet (m²)", "Toz", "Kalınlık (µm)", "Toz / adet (g)",
-            "Toplam toz (kg)", "Tutar"]
+            "Toplam toz (kg)", "Tutar", "Ağırlık / adet (kg)"]
 
 
 class AnaPencere(QMainWindow):
@@ -1137,14 +1149,15 @@ class AnaPencere(QMainWindow):
         k = self.kalemler[r]
         try:
             s = kalem_sonucu(k, self.ayar)
-            veri = [k.ad, kaynak_aciklamasi(k.kaynak), str(k.adet), sayi(s.alan_m2, 4), self.ayar.toz(k.toz).ad,
-                    "—" if s.kalinlik_um is None else sayi(s.kalinlik_um, 0), sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3),
-                    f"{sayi(s.tutar, 2)} {self.ayar.para}"]
+            veri = [k.ad, kaynak_aciklamasi(k.kaynak) + rapor.ek_aciklama(k), str(k.adet), sayi(s.alan_m2, 4),
+                    self.ayar.toz(k.toz).ad, "—" if s.kalinlik_um is None else sayi(s.kalinlik_um, 0),
+                    sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3), f"{sayi(s.tutar, 2)} {self.ayar.para}",
+                    rapor.agirlik_metni(s.agirlik_kg_adet)]
         except ValueError as h:
-            veri = [k.ad, f"HATA: {h}", str(k.adet), "—", "", "", "", "", ""]
+            veri = [k.ad, f"HATA: {h}", str(k.adet), "—", "", "", "", "", "", ""]
         for c, x in enumerate(veri):
             it = QTableWidgetItem(x)
-            if c in (2, 3, 5, 6, 7, 8):
+            if c in (2, 3, 5, 6, 7, 8, 9):
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             if c != 2:
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -1185,7 +1198,8 @@ class AnaPencere(QMainWindow):
             f"<b>{len(self.kalemler)}</b> kalem, <b>{o.toplam_adet}</b> adet · Toplam alan <b>{sayi(o.toplam_m2, 2)} m²</b>"
             f" · Toz <b>{sayi(o.toz_kg, 2)} kg</b> ({yontem_ozeti(self.ayar)})<br>"
             f"{tozlar}<br>Toz {sayi(o.toz_tl, 2)} {p} + proses {sayi(o.proses_tl, 2)} {p} = <b>{sayi(o.tutar, 2)} {p}</b>"
-            + uyari)
+            f" · Ağırlık <b>{sayi(o.agirlik_kg, 1)} kg</b>"
+            + (f" ({o.agirliksiz} kalemin ağırlığı bilinmiyor)" if o.agirliksiz else "") + uyari)
 
     def _secili(self) -> int:
         r = self.tablo.currentRow()
@@ -1377,6 +1391,16 @@ class AnaPencere(QMainWindow):
         maske.setToolTip("Boyanmayan yüzeyler (dişli delik, oturma yüzü, borunun boyanmayan içi), adet başına")
         maske.valueChanged.connect(lambda x: self._guncelle(r, maske_cm2=x))
         bf.addRow("Maske (adet başına)", maske)
+        maske_y = _cift(0.0, 100.0, k.maske_yuzde, 1, 1, "%")
+        maske_y.setToolTip("Boyanmayan alan, çizim alanının yüzdesi olarak (cm² maskeyle birlikte düşülür)")
+        maske_y.valueChanged.connect(lambda x: self._guncelle(r, maske_yuzde=x))
+        bf.addRow("Maske (%)", maske_y)
+        kat = QSpinBox()
+        kat.setRange(1, 5)
+        kat.setValue(k.kat)
+        kat.setToolTip("Astar + son kat gibi çok katlı işlerde: toz ve proses kat sayısıyla çarpılır")
+        kat.valueChanged.connect(lambda x: self._guncelle(r, kat=x))
+        bf.addRow("Kat sayısı", kat)
         toz = QComboBox()
         toz.addItems([t.ad for t in self.ayar.tozlar])
         toz.setCurrentText(self.ayar.toz(k.toz).ad)
@@ -1406,6 +1430,22 @@ class AnaPencere(QMainWindow):
         toz.currentTextChanged.connect(toz_degisti)
         v.addWidget(b)
 
+        ag = QGroupBox("Ağırlık")
+        af = QFormLayout(ag)
+        hesapli = agirlik_kg(Kalem(k.ad, k.kaynak), self.ayar)
+        elle = QCheckBox("Elle gir")
+        elle.setChecked(k.agirlik_kg is not None)
+        agk = _cift(0.0, 1e6, k.agirlik_kg if k.agirlik_kg is not None else (hesapli or 0.0), 3, 0.1, "kg")
+        agk.setEnabled(elle.isChecked())
+        bilgi = QLabel(f"çizimden: {sayi(hesapli, 3)} kg (metal hacmi × {sayi(self.ayar.metal_yogunluk, 2)} g/cm³)"
+                       if hesapli is not None else "çizimden hesaplanamadı (dolu gövde ya da elle alan): elle girin")
+        bilgi.setWordWrap(True)
+        elle.toggled.connect(lambda b_: (agk.setEnabled(b_), self._guncelle(r, agirlik_kg=agk.value() if b_ else None)))
+        agk.valueChanged.connect(lambda x: elle.isChecked() and self._guncelle(r, agirlik_kg=x))
+        af.addRow(bilgi)
+        af.addRow(elle, agk)
+        v.addWidget(ag)
+
         self._sonuc_etiketi = QLabel()
         self._sonuc_etiketi.setWordWrap(True)
         v.addWidget(self._sonuc_etiketi)
@@ -1426,8 +1466,11 @@ class AnaPencere(QMainWindow):
             p = self.ayar.para
             self._sonuc_etiketi.setText(
                 f"Boyanacak alan: <b>{sayi(s.alan_m2, 4)} m²</b> / adet"
-                + (f" (çizim {sayi(ham, 4)} − maske {sayi(k.maske_cm2 / 1e4, 4)})" if k.maske_cm2 else "")
-                + f"<br>Toz: <b>{sayi(s.toz_g_adet, 1)} g</b> / adet · toplam <b>{sayi(s.toz_kg, 3)} kg</b>"
+                + (f" (çizim {sayi(ham, 4)} m², maske düşüldü)" if k.maske_cm2 or k.maske_yuzde else "")
+                + f"<br>Toz: <b>{sayi(s.toz_g_adet, 1)} g</b> / adet" + (f" ({s.kat} kat)" if s.kat > 1 else "")
+                + f" · toplam <b>{sayi(s.toz_kg, 3)} kg</b>"
+                + ("" if s.agirlik_kg is None else
+                   f"<br>Ağırlık: <b>{sayi(s.agirlik_kg_adet, 3)} kg</b> / adet · toplam {sayi(s.agirlik_kg, 2)} kg")
                 + f"<br>Tutar: {sayi(s.toz_tl, 2)} + {sayi(s.proses_tl, 2)} = <b>{sayi(s.tutar, 2)} {p}</b>")
         except ValueError as h:
             self._sonuc_etiketi.setText(f"<span style='color:#a02020'>{h}</span>")

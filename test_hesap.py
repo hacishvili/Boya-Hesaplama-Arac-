@@ -6,6 +6,7 @@ import struct
 import tempfile
 import unittest
 
+import hesap
 import kaliplar
 import proje
 import rapor
@@ -72,6 +73,50 @@ class Toz_(unittest.TestCase):
     def test_maske_alandan_buyukse_sifir(self):
         k = Kalem("x", {"tur": "elle", "alan_m2": 0.001}, maske_cm2=50.0)
         self.assertEqual(kalem_sonucu(k, Ayarlar()).alan_m2, 0.0)
+
+    def test_kat_ve_maske_yuzdesi(self):
+        a = hesap.Ayarlar()
+        a.tozlar[0].fiyat = 100.0
+        a.proses_tl_m2 = 10.0
+        k = hesap.Kalem("p", {"tur": "elle", "alan_m2": 1.2}, adet=2, toz=a.tozlar[0].ad)
+        tek = hesap.kalem_sonucu(k, a)
+        k.kat, k.maske_yuzde = 2, 50.0
+        s = hesap.kalem_sonucu(k, a)
+        self.assertAlmostEqual(s.alan_m2, 0.6)
+        self.assertAlmostEqual(s.toz_kg, tek.toz_kg)       # yarı alan, iki kat
+        self.assertAlmostEqual(s.proses_tl, tek.proses_tl)
+        k.maske_cm2 = 1000.0                                # % ile cm² birlikte
+        self.assertAlmostEqual(hesap.kalem_sonucu(k, a).alan_m2, 0.5)
+        k2 = hesap.Kalem.sozlukten(k.sozluk())
+        self.assertEqual((k2.kat, k2.maske_yuzde), (2, 50.0))
+        k.kat = 0
+        with self.assertRaises(ValueError):
+            hesap.kalem_sonucu(k, a)
+
+    def test_agirlik(self):
+        a = hesap.Ayarlar()
+        plaka = hesap.Kalem("plaka", {"tur": "2d", "yuz_alani": 200 * 100, "cevre": 600, "olcu": [200, 100],
+                                      "kalinlik": 2.0}, adet=3)
+        s = hesap.kalem_sonucu(plaka, a)
+        self.assertAlmostEqual(s.agirlik_kg_adet, 200 * 100 * 2 * 7.85e-6)
+        self.assertAlmostEqual(s.agirlik_kg, 3 * s.agirlik_kg_adet)
+        boru = hesap.Kalem("boru", {"tur": "kalip", "kalip": "Yuvarlak boru", "deger": {"D": 25, "t": 1.5, "L": 400}})
+        self.assertAlmostEqual(hesap.kalem_sonucu(boru, a).agirlik_kg_adet,
+                               math.pi / 4 * (25 ** 2 - 22 ** 2) * 400 * 7.85e-6)
+        elle = hesap.Kalem("e", {"tur": "elle", "alan_m2": 0.1})
+        self.assertIsNone(hesap.kalem_sonucu(elle, a).agirlik_kg)
+        elle.agirlik_kg = 1.25
+        self.assertTrue(hesap.kalem_sonucu(elle, a).agirlik_elle)
+        o = hesap.ozet([plaka, boru, hesap.Kalem("x", {"tur": "elle", "alan_m2": 0.1})], a)
+        self.assertEqual(o.agirliksiz, 1)
+        self.assertAlmostEqual(o.agirlik_kg, s.agirlik_kg + hesap.kalem_sonucu(boru, a).agirlik_kg)
+        a.metal_yogunluk = 2.70
+        self.assertAlmostEqual(hesap.Ayarlar.sozlukten(a.sozluk()).metal_yogunluk, 2.70)
+        for ad in kaliplar.KALIPLAR:  # her kalıbın hacmi var
+            d = {"t": 1.5} if "Abkant" in ad else {}
+            self.assertGreater(kaliplar.hacim(ad, d), 0)
+        self.assertAlmostEqual(kaliplar.hacim("Konik ayak (boru)", {"D1": 40, "D2": 40, "t": 2, "L": 100}),
+                               math.pi / 4 * (40 ** 2 - 36 ** 2) * 100)
 
     def test_sayi(self):
         self.assertEqual(sayi(1234567.891, 2), "1.234.567,89")

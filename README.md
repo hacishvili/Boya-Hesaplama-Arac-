@@ -60,9 +60,11 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
   Çaplar dış / orta / iç yüzeyden verilir; açınım nötr eksenden (K = 0,5, değiştirilebilir) hesaplanır: kesik
   konide halka dilimi (iç ve dış yarıçap, açı), silindirde dikdörtgen. Seçili kalem konik ayak / boru kalıbı ya da
   3D konik profilse ölçüler kendiliğinden dolar (3D boruda sac kalınlığı modelden).
-- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu (teorik yöntemde film kalınlığı).
+- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan; cm² ve/veya çizim alanının yüzdesi), kat
+  sayısı (astar + son kat: 2), tozu (teorik yöntemde film kalınlığı) ve ağırlığı (çizimden; çıkmıyorsa elle).
   Birden çok kalem seçilince (Ctrl / Shift) toz hepsine birden atanır.
-- **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, DWG için ODA
+- **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, metal yoğunluğu
+  (ağırlık için; çelik 7,85 g/cm³), DWG için ODA
   dönüştürücüsünün yolu ve toz kütüphanesi (sarfiyat m²/kg, fiyat; teorik yöntem için yoğunluk, kalınlık). Bu ayarlar `%APPDATA%\TozBoyaHesap\ayarlar.json` dosyasında saklanır.
 - **Proje dosyası:** `.tozboya`. Hesap için gereken her şey bu dosyanın içindedir; çizim dosyası taşınsa da
   proje açılır.
@@ -78,6 +80,14 @@ tutar    = toz (kg) × toz fiyatı  +  alan (m²) × proses ücreti
 ```
 
 Örnek: 0,25 m²'lik ayak, 400 adet: 100 m² → 16,7 kg toz (adet başına 41,7 g).
+
+Maske düşüldükten sonra kalan alan boyanır: `alan = çizim alanı × (1 − maske %) − maske cm²`. Çok katlı işlerde
+(astar + son kat) toz ve proses kat sayısıyla çarpılır; alan bir kez sayılır.
+
+**Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,
+3D sacta kalınlık × yüz, 3D profilde ortadaki kesitin metal alanı × boy (yuvarlatılmış köşelerde yaklaşık), kapalı
+STL / mesh gövdede ağın hacmi, kalıplarda ölçülerden. Dolu ACIS gövdelerde ve elle alan kalemlerinde hesaplanmaz
+(tabloda —); ağırlık ayrıntı panelinden elle girilir.
 
 İstenirse ayarlardan **teorik** yönteme geçilir; o zaman film kalınlığı, yoğunluk ve transfer verimi kullanılır:
 

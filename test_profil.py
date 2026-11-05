@@ -75,6 +75,9 @@ class Profil(unittest.TestCase):
         # uçlardan 26 mm: iç yüzeyin 52/300'ü
         self.assertAlmostEqual(p.ic_boyanan(26.0), 4 * 26 * 52, places=4)
         self.assertAlmostEqual(p.ic_boyanan(1000.0), p.ic_alan, places=6)
+        self.assertAlmostEqual(p.kesit_alani, 900 - 676, places=4)  # ağırlık: metal kesiti × boy
+        k = {"tur": "3d", "alan": g.alan, "profil": p.sozluk()}
+        self.assertAlmostEqual(hesap.kaynak_hacmi(k), 224 * 300, places=2)
 
     def test_gonyeli_ve_cm(self):
         p = self.oku(kutu_boru(a=3.0, t=0.2, L=30.0, gonye=1.0), birim=5).profil  # cm çizim, 45° kesim
@@ -110,6 +113,7 @@ class Profil(unittest.TestCase):
         self.assertAlmostEqual(p.ic_alan, 2 * math.pi * r * L, places=4)
         self.assertAlmostEqual(p.uc, 2 * math.pi * (R * R - r * r), places=4)
         self.assertAlmostEqual(p.bosluk, 2 * r, delta=0.01)
+        self.assertAlmostEqual(p.kesit_alani, math.pi * (R * R - r * r), delta=1e-3 * math.pi * (R * R - r * r))
 
     def test_sac_kalinligi_modelden(self):
         from ezdxf.render import forms
@@ -118,6 +122,7 @@ class Profil(unittest.TestCase):
         self.assertAlmostEqual(g.sac.kalinlik, 2.0, places=9)
         self.assertAlmostEqual(g.sac.yuz, 2 * 6000, places=6)
         self.assertAlmostEqual(g.sac.kenar, 2 * 160 * 2, places=6)
+        self.assertAlmostEqual(hesap.kaynak_hacmi({"tur": "3d", "sac": g.sac.sozluk()}), 100 * 60 * 2, places=6)
         self.assertIsNone(self.oku(forms.cube().scale(50, 50, 50)).sac)  # blok: sac değil
 
     def test_sac_bukum_yuzleri(self):
