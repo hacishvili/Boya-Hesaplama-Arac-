@@ -398,14 +398,14 @@ class Arayuz(unittest.TestCase):
         s = kalem_sonucu(w.kalemler[0], w.ayar)
         self.assertEqual(s.islem_detay["Havşa"], (2.0, 5.0))           # çizimden 2 havşa
         panel = w.ayrinti_alan.widget()
-        cb = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 2)"][0]
+        cb = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 2 adet)"][0]
         cb.setChecked(True)
         sp = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.isEnabled() and x.suffix() == " adet"][0]
         sp.setValue(3)
         self.assertEqual(w.kalemler[0].islemler["Havşa"], 3)
         cb.setChecked(False)                                           # çizime döner
         self.assertNotIn("Havşa", w.kalemler[0].islemler)
-        elle = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 0,000)"][0]
+        elle = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 0,000 m · 0,0 mm)"][0]
         elle.setChecked(True)                                          # tek gövde, dikiş seçilmemiş: elle
         kaynak = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.suffix() == " m"][0]
         kaynak.setValue(0.5)
@@ -450,6 +450,16 @@ class Arayuz(unittest.TestCase):
         k = ayri[1]
         p = pencere.KaynakPenceresi(k.geo, k.kaynak["kaynak_dikisleri"])
         i = k.geo.oneri[0]
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import QPoint
+        p.gorunum.resize(700, 500)
+        p.gorunum.grab()
+        q = p.gorunum._ekran[i][len(p.gorunum._ekran[i]) // 3].toPoint()
+        QTest.mousePress(p.gorunum, Qt.LeftButton, pos=q)               # el titremesi (5 px): yine tıklama
+        QTest.mouseMove(p.gorunum, q + QPoint(4, 3))
+        QTest.mouseRelease(p.gorunum, Qt.LeftButton, pos=q + QPoint(4, 3))
+        self.assertEqual(p.gorunum.secim.get(i), 2)
+        p.gorunum.secim[i] = 1
         p.gorunum.tikla(i)                                               # tek → iki taraflı
         self.assertEqual(p.dikisler()[0][1], 2)
         self.assertIn("iki taraflı", p.ozet.text())

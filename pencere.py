@@ -835,6 +835,7 @@ class KaynakGorunum(QWidget):
     döner: seçilmemiş → tek taraflı → iki taraflı → seçilmemiş. Önerilen kenarlar yeşil kesikli."""
     degisti = Signal()
     RENK = {1: QColor(230, 120, 0), 2: QColor(200, 30, 30)}
+    TIK_PAYI = 8   # piksel: bundan az kayan basış tıklamadır
 
     def __init__(self, ag: Ag, secim: Dict[int, int], parent=None):
         super().__init__(parent)
@@ -958,7 +959,7 @@ class KaynakGorunum(QWidget):
             return
         if self._bas is not None and e.buttons() & Qt.LeftButton:
             d = e.position() - self._bas
-            if self._suruklendi or abs(d.x()) + abs(d.y()) > 4:  # seçim penceresi
+            if self._suruklendi or max(abs(d.x()), abs(d.y())) > self.TIK_PAYI:  # seçim penceresi
                 self._suruklendi = True
                 self._pencere = QRectF(self._bas, e.position())
                 self.update()
@@ -975,6 +976,9 @@ class KaynakGorunum(QWidget):
                 self.unsetCursor()
             return
         if self._bas is not None and e.button() == Qt.LeftButton:
+            d = e.position() - self._bas
+            if max(abs(d.x()), abs(d.y())) <= self.TIK_PAYI:  # el titremesi: tıklama sayılır
+                self._suruklendi = False
             if self._suruklendi and self._pencere is not None:
                 # AutoCAD gibi: soldan sağa pencere (tamamı içinde), sağdan sola kesişen; Shift: seçimden çıkar
                 capraz = self._pencere.width() < 0
@@ -1621,7 +1625,7 @@ class AyarPenceresi(QDialog):
         self.islem.setCellWidget(r, 3, kaynak)
         tel = QCheckBox()
         tel.setChecked(i.tel)
-        tel.setToolTip("Metre fiyatına kaynak teli maliyeti eklenir (birim m olmalı)")
+        tel.setToolTip("Boy fiyatına kaynak teli maliyeti eklenir (birim m ya da mm)")
         self.islem.setCellWidget(r, 4, tel)
 
     def islemler(self) -> List[Islem]:
@@ -1933,7 +1937,7 @@ class AnaPencere(QMainWindow):
         adet.valueChanged.connect(adet_ata)
         f.addRow("Adet (hepsine)", adet)
         for i in self.ayar.islemler:  # boya dışı işlem miktarı hepsine (çizimden gelen değer ezilir)
-            basamak = 0 if i.birim in ("adet", "sabit") else 3
+            basamak = 0 if i.birim in ("adet", "sabit") else 1 if i.birim == "mm" else 3
             ms = {islem_miktari(k, i)[0] for k in kalemler}
             sp = _cift(0.0, 1e6, next(iter(ms)) if len(ms) == 1 else 0.0, basamak, 1 if basamak == 0 else 0.1,
                        "" if i.birim == "sabit" else i.birim)
@@ -2168,8 +2172,8 @@ class AnaPencere(QMainWindow):
 
         for i in self.ayar.islemler:
             m, elle = islem_miktari(k, i)
-            basamak = 0 if i.birim in ("adet", "sabit") else 3
-            sp = _cift(0.0, 1e6, m, basamak, 1 if basamak == 0 else 0.1, "" if i.birim == "sabit" else i.birim)
+            basamak = 0 if i.birim in ("adet", "sabit") else 1 if i.birim == "mm" else 3
+            sp = _cift(0.0, 1e9, m, basamak, 1 if basamak == 0 else 0.1, "" if i.birim == "sabit" else i.birim)
             sp.setToolTip(f"Birim fiyat {sayi(self.ayar.birim_fiyati(i), 2)} {p}/{i.birim}"
                           + (f" (işçilik {sayi(i.fiyat, 2)} + tel {sayi(self.ayar.tel_tl_m, 2)})" if i.tel else "")
                           + " (Ayarlar)")
@@ -2188,7 +2192,11 @@ class AnaPencere(QMainWindow):
                 sec.clicked.connect(lambda _=False, ad=i.ad: self._yuzey_sec(r, ad))
                 h.addWidget(sec)
             if i.kaynak and oto is not None:
-                cb = QCheckBox(f"elle (çizimden {sayi(oto, basamak)})")
+                ek = ""
+                if i.kaynak == "kaynak":  # kaynak boyu iki birimde
+                    ek = f" · {sayi(oto * 1000, 1)} mm" if i.birim == "m" else \
+                        f" · {sayi(oto / 1000, 3)} m" if i.birim == "mm" else ""
+                cb = QCheckBox(f"elle (çizimden {sayi(oto, basamak)} {i.birim}{ek})")
                 cb.setChecked(elle)
                 sp.setEnabled(elle)
 
@@ -2219,6 +2227,19 @@ class AnaPencere(QMainWindow):
         self._sonrasi(r)
         self.ayrinti_alan.setWidget(self._ayrinti(r))
 
+    def _miktar_metni(self, ad: str, m: float) -> str:
+        """İşlem miktarı birimiyle; kaynak boyu m ve mm birlikte."""
+        i = next((x for x in self.ayar.islemler if x.ad == ad), None)
+        if i is None:
+            return sayi(m, 3)
+        if i.birim == "m":
+            return f"{sayi(m, 3)} m ({sayi(m * 1000, 1)} mm)" if i.kaynak == "kaynak" else f"{sayi(m, 3)} m"
+        if i.birim == "mm":
+            return f"{sayi(m, 1)} mm ({sayi(m / 1000, 3)} m)"
+        if i.birim == "sabit":
+            return sayi(m, 0)
+        return f"{sayi(m, 0 if i.birim == 'adet' else 3)} {i.birim}"
+
     def _yuzey_sec(self, r: int, ad: str):
         k = self.kalemler[r]
         d = YuzeyPenceresi(k.geo, (k.kaynak.get("yuzey_secimi") or {}).get(ad, []), ad, self)
@@ -2242,7 +2263,8 @@ class AnaPencere(QMainWindow):
                 + f" · toplam <b>{sayi(s.toz_kg, 3)} kg</b>"
                 + ("" if s.agirlik_kg is None else
                    f"<br>Ağırlık: <b>{sayi(s.agirlik_kg_adet, 3)} kg</b> / adet · toplam {sayi(s.agirlik_kg, 2)} kg")
-                + "".join(f"<br>{html.escape(ad)}: {sayi(m, 3)} / adet → {sayi(tl, 2)} {p}" for ad, (m, tl) in s.islem_detay.items())
+                + "".join(f"<br>{html.escape(ad)}: {self._miktar_metni(ad, m)} / adet → {sayi(tl, 2)} {p}"
+                          for ad, (m, tl) in s.islem_detay.items())
                 + f"<br>Tutar: toz {sayi(s.toz_tl, 2)} + proses {sayi(s.proses_tl, 2)}"
                 + (f" + işlem {sayi(s.islem_tl, 2)}" if s.islem_tl else "")
                 + f" = <b>{sayi(s.tutar, 2)} {p}</b> · adet başına <b>{sayi(s.birim_fiyat, 2)} {p}</b>")
