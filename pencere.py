@@ -122,6 +122,10 @@ class Onizleme(QWidget):
             p.setPen(QPen(QColor(30, 80, 140), 1.0))
             for y in yuzler:
                 p.drawPolygon(QPolygonF([donus(*proj(q)) for q in y]))
+            if self._ag.vurgu:  # delik ve havşa döngüleri
+                p.setPen(QPen(QColor(220, 110, 0), 1.8))
+                for y in self._ag.vurgu:
+                    p.drawPolygon(QPolygonF([donus(*proj(q)) for q in y]))
             return
         isik = (-0.4, -0.5, 0.77)
         sirali = sorted(yuzler, key=lambda y: sum(q[0] + q[1] - q[2] * 0.0 for q in y) / len(y), reverse=True)
@@ -304,6 +308,8 @@ class IceAktar(QDialog):
                 kaynak = None if g.hata else {"tur": "3d", "alan": g.alan, "kapali": g.kapali,
                                               "katsayi": 2.0 if g.ag is not None and g.ag.sac_yuzeyi_mi() else 1.0,
                                               "varlik": g.tur}
+                if kaynak and g.delikler:
+                    kaynak["delikler"] = [d.sozluk() for d in g.delikler]
                 if kaynak and g.ag is not None and g.ag.hacim():
                     kaynak["hacim"] = g.ag.hacim()  # kapalı çokgen ağ (3DFACE / polyface / mesh)
                 if kaynak and g.sac is not None:
@@ -493,9 +499,10 @@ class IceAktar(QDialog):
 
     def _birlesik_kalem(self, satirlar: List[int]) -> Kalem:
         """Seçili 3D gövdeler tek kalem: adet başına alan = Σ (gövde alanı × gövde adedi); adet 1."""
-        toplam, kapali, geolar, hacim = 0.0, True, [], 0.0
+        toplam, kapali, geolar, hacim, delikler = 0.0, True, [], 0.0, []
         for r in satirlar:
             _, geo, kaynak, _, _ = self.ogeler[r]
+            delikler += list(kaynak.get("delikler", [])) * self.tablo.cellWidget(r, 5).value()
             toplam += kaynak_alani(kaynak) * self.tablo.cellWidget(r, 5).value()
             h = kaynak_hacmi(kaynak)
             hacim = None if h is None or hacim is None else hacim + h * self.tablo.cellWidget(r, 5).value()
@@ -506,8 +513,12 @@ class IceAktar(QDialog):
                   "varlik": f"birleşik, {len(satirlar)} gövde"}
         if hacim:
             kaynak["hacim"] = hacim
+        if delikler:
+            kaynak["delikler"] = delikler
         k = Kalem(self.dosya_adi, kaynak, toz=self.toz, dosya=self.yol)
-        k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi) if geolar else None
+        # ACIS katılarının önizlemesi kenar döngüleridir (tel): dolu çizilirse delik ve havşa döngüleri kapanır
+        k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi, tel=any(g.tel for g in geolar),
+                   vurgu=[d for g in geolar for d in g.vurgu]) if geolar else None
         return k
 
     def kalemler(self) -> List[Kalem]:
@@ -1377,6 +1388,21 @@ class AnaPencere(QMainWindow):
             a = _cift(0.0, 1e6, float(kaynak.get("alan_m2", 0.0)), 4, 0.01, "m²")
             a.valueChanged.connect(lambda x: self._kaynak(r, alan_m2=x))
             gf.addRow("Alan / adet", a)
+        if kaynak["tur"] == "3d" and kaynak.get("delikler"):
+            import profil
+            satir = [f"{n} × {m}" for n, m in profil.delik_ozeti(kaynak["delikler"])]
+            alan_ = sum(d["alan"] for d in kaynak["delikler"])
+            duvar = sum(d["duvar"] for d in kaynak["delikler"])
+            dl = QLabel("<br>".join(satir) + f"<br><span style='color:#666'>yüzey {sayi(alan_ / 100, 1)} cm² (duvar "
+                        f"{sayi(duvar / 100, 1)}, havşa {sayi((alan_ - duvar) / 100, 1)}); önizlemede turuncu</span>")
+            dl.setWordWrap(True)
+            gf.addRow("Delikler", dl)
+            dib = QCheckBox("Delik içleri boyanmaz")
+            dib.setToolTip("Küçük deliklerin içine toz girmez (Faraday kafesi); işaretlenirse silindir duvarları "
+                           "alandan düşülür, havşa ağzı boyanır")
+            dib.setChecked(bool(kaynak.get("delik_ici_boyanmaz")))
+            dib.toggled.connect(lambda b_: self._kaynak(r, delik_ici_boyanmaz=b_))
+            gf.addRow("", dib)
         v.addWidget(g)
 
         b = QGroupBox("Boya")

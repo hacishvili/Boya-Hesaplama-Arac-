@@ -47,6 +47,7 @@ class YuzBilgi:
     merkez: Optional[V3] = None
     r0: float = 0.0                   # koni: merkezdeki yarıçap; ρ(h) = r0 + egim h
     egim: float = 0.0
+    kenarlar: List[frozenset] = field(default_factory=list)   # döngü başına kenar kimlikleri (komşuluk için)
 
 
 @dataclass
@@ -307,3 +308,130 @@ def sac_coz(yuzler: Sequence[YuzBilgi]) -> Optional[Sac]:
     if yuz < 0.5 * toplam or t > 0.25 * olcu[1]:
         return None
     return Sac(t, yuz, toplam - yuz)
+
+
+# ---------------------------------------------------------------- delik ve havşa
+
+@dataclass
+class Delik:
+    cap: float                        # en dar silindirin çapı (mm)
+    havsa_cap: float = 0.0            # havşa / kademe ağzının çapı (0: yok)
+    havsa_aci: float = 0.0            # konik havşanın tepe açısı (derece; 0: düz kademe)
+    alan: float = 0.0                 # deliğin bütün yüzeyleri (duvar + havşa), mm²
+    duvar: float = 0.0                # silindir duvarları, mm² (delik içi boyanmaz seçeneğinde düşülür)
+    yuzler: List[int] = field(default_factory=list)
+
+    def sozluk(self) -> Dict:
+        return {"cap": self.cap, "havsa_cap": self.havsa_cap, "havsa_aci": self.havsa_aci, "alan": self.alan,
+                "duvar": self.duvar}
+
+    def olcekle(self, k: float) -> None:
+        self.cap, self.havsa_cap = self.cap * k, self.havsa_cap * k
+        self.alan, self.duvar = self.alan * k * k, self.duvar * k * k
+
+
+def _dongu_alani(d: Sequence[V3], n: V3) -> float:
+    s = (0.0, 0.0, 0.0)
+    for i in range(len(d)):
+        c = _dis(d[i], d[(i + 1) % len(d)])
+        s = (s[0] + c[0], s[1] + c[1], s[2] + c[2])
+    return abs(_ic(s, n)) / 2
+
+
+def delik_bul(yuzler: Sequence[YuzBilgi]) -> List[Delik]:
+    """Yuvarlak delikler: kenarı bir düz yüzün iç döngüsünde (delik ağzında) olan silindir / koni yüzlerinden
+    başlayıp kenar paylaşan eş eksenli silindir / konilerle büyüyen, eksen çevresinde tam dönen yüz kümeleri.
+    Aynı eksendeki kümeler (kademeli delik: araya düz halka girer) birleşir. Koni: havşa; büyük silindir: kademe."""
+    pts = [q for y in yuzler for d in y.donguler for q in d]
+    if not pts:
+        return []
+    olcu = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3)) or 1.0
+    tol = olcu * 1e-4
+    ic_kenar = set()
+    for y in yuzler:
+        if y.tur == "duzlem" and y.normal is not None and len(y.donguler) >= 2 and len(y.kenarlar) == len(y.donguler):
+            alanlar = [_dongu_alani(d, y.normal) for d in y.donguler]
+            dis = max(range(len(alanlar)), key=alanlar.__getitem__)
+            for i, k in enumerate(y.kenarlar):
+                if i != dis:
+                    ic_kenar |= k
+    koni = [i for i, y in enumerate(yuzler) if y.tur == "koni" and y.eksen is not None and y.merkez is not None
+            and y.kenarlar]
+    if not koni or not ic_kenar:
+        return []
+
+    def eksen_ayni(i, j):
+        a, b = yuzler[i], yuzler[j]
+        if abs(abs(_ic(a.eksen, b.eksen)) - 1.0) > 1e-6:
+            return False
+        d = _cik(b.merkez, a.merkez)
+        return math.sqrt(max(0.0, _ic(d, d) - _ic(d, a.eksen) ** 2)) <= tol
+
+    kenar = {i: frozenset().union(*yuzler[i].kenarlar) for i in koni}
+    tohum = [i for i in koni if kenar[i] & ic_kenar]
+    kume: List[List[int]] = []
+    goruldu = set()
+    for t in tohum:
+        if t in goruldu:
+            continue
+        k, yigin = [], [t]
+        goruldu.add(t)
+        while yigin:
+            i = yigin.pop()
+            k.append(i)
+            for j in koni:
+                if j not in goruldu and kenar[i] & kenar[j] and eksen_ayni(i, j):
+                    goruldu.add(j)
+                    yigin.append(j)
+        # aynı eksendeki önceki kümeye katılır (kademeli delik)
+        for e in kume:
+            if eksen_ayni(e[0], k[0]):
+                e.extend(k)
+                break
+        else:
+            kume.append(k)
+    out = []
+    for k in kume:
+        a = yuzler[k[0]]
+        e1 = _birim(_dis(a.eksen, (1.0, 0.0, 0.0) if abs(a.eksen[0]) < 0.9 else (0.0, 1.0, 0.0)))
+        e2 = _dis(a.eksen, e1)
+
+        def yaricaplar(i):
+            out_ = []
+            for d in yuzler[i].donguler:
+                for q in d:
+                    v = _cik(q, a.merkez)
+                    out_.append(math.hypot(_ic(v, e1), _ic(v, e2)))
+            return out_
+        acilar = sorted(math.atan2(_ic(_cik(q, a.merkez), e2), _ic(_cik(q, a.merkez), e1))
+                        for i in k for d in yuzler[i].donguler for q in d)
+        bosluk = max([b - c for c, b in zip(acilar, acilar[1:])] + [acilar[0] + 2 * math.pi - acilar[-1]])
+        if bosluk > math.radians(30):  # tam dönmüyor: yuva ucu, yay köşe ... delik değil
+            continue
+        sil = [i for i in k if abs(yuzler[i].egim) < 1e-6]
+        kon = [i for i in k if abs(yuzler[i].egim) >= 1e-6]
+        r_sil = {i: sum(yaricaplar(i)) / max(1, len(yaricaplar(i))) for i in sil}
+        cap = 2 * min(r_sil.values()) if sil else 2 * min(min(yaricaplar(i)) for i in kon)
+        dl = Delik(cap, alan=sum(yuzler[i].alan for i in k), duvar=sum(yuzler[i].alan for i in sil), yuzler=list(k))
+        if kon:
+            dl.havsa_cap = 2 * max(max(yaricaplar(i)) for i in kon)
+            dl.havsa_aci = 2 * math.degrees(math.atan(max(abs(yuzler[i].egim) for i in kon)))
+        elif len(r_sil) > 1 and 2 * max(r_sil.values()) > cap + 2 * tol:
+            dl.havsa_cap = 2 * max(r_sil.values())  # düz kademe (silindirik havşa)
+        out.append(dl)
+    return out
+
+
+def delik_ozeti(delikler: Sequence[Dict]) -> List[Tuple[int, str]]:
+    """Aynı ölçülü delikler gruplanır: [(adet, 'Ø6,6 havşa Ø12,4 × 90°'), ...] (büyükten küçüğe)."""
+    say: Dict[Tuple, int] = {}
+    for d in delikler:
+        a = (round(d["cap"], 1), round(d.get("havsa_cap", 0.0), 1), round(d.get("havsa_aci", 0.0)))
+        say[a] = say.get(a, 0) + 1
+    out = []
+    for (cap, hc, ha), n in sorted(say.items(), key=lambda x: -x[0][0]):
+        m = f"Ø{cap:g}".replace(".", ",")
+        if hc:
+            m += (f" havşa Ø{hc:g} × {ha:g}°" if ha else f" kademe Ø{hc:g}").replace(".", ",")
+        out.append((n, m))
+    return out

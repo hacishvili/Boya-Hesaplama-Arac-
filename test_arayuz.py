@@ -137,6 +137,36 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(len(d.kalemler()), 1)
         self.assertNotIn("birleşik", d.kalemler()[0].kaynak["varlik"])
 
+    def test_delikler_panelde_ve_birlesikte(self):
+        import test_profil
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        for x in (0, 1):
+            doc.modelspace().add_3dsolid().sat = test_profil.delikli_plaka([(20, 20, "havsa"), (60, 30, "duz")])
+        yol = os.path.join(self.klasor, "delikli.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        ayri = d.kalemler()
+        self.assertEqual(len(ayri[0].kaynak["delikler"]), 2)
+        d.birlestir.setChecked(True)
+        tek = d.kalemler()[0]
+        self.assertEqual(len(tek.kaynak["delikler"]), 4)
+        self.assertTrue(tek.geo.tel)                       # birleşik önizleme de kenar döngüleri (delikler görünür)
+        self.assertGreater(len(tek.geo.vurgu), 0)
+        w.kalemler.append(ayri[0])
+        w._yenile(0)
+        self.assertIn("2 delik (1 havşalı)", w.tablo.item(0, 1).text())
+        panel = w.ayrinti_alan.widget()
+        self.assertTrue(any("Ø6 havşa Ø12 × 90°" in l.text() for l in panel.findChildren(pencere.QLabel)))
+        once = kalem_sonucu(w.kalemler[0], w.ayar).alan_m2
+        cb = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "Delik içleri boyanmaz"][0]
+        cb.setChecked(True)
+        duvar = sum(x["duvar"] for x in w.kalemler[0].kaynak["delikler"]) / 1e6
+        self.assertAlmostEqual(kalem_sonucu(w.kalemler[0], w.ayar).alan_m2, once - duvar)
+        w.degisti = False
+        w.close()
+
     def test_birlestir_tek_govdede_kapali(self):
         doc = ezdxf.new("R2018")
         doc.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)

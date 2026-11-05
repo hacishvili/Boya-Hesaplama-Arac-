@@ -1049,6 +1049,8 @@ class Govde:
         self.tani: List[str] = []           # hesaplanamayan yüzlerin ham yüzey verisi (hata raporu için)
         self.profil = None                  # profil.Profil: dış / iç / uç yüzeyler (profilse)
         self.sac = None                     # profil.Sac: kalınlık, iki yüz, kesim kenarları (sac parçaysa)
+        self.delikler: list = []            # profil.Delik: yuvarlak delik / havşa
+        self.vurgu: List[List[V3]] = []     # deliklerin döngüleri (önizlemede renkli)
 
 
 def _donusum(tr: Optional[Kayit]):
@@ -1099,6 +1101,7 @@ def govdeler(e) -> List[Govde]:
                     shell = sp[1]
                 boyut = _boyut(yuzler)
                 bilgiler = []
+                dongu_bas = []  # yüzün döngülerinin g.donguler içindeki ilk sırası
                 tol = max(1e-6, boyut * 1e-6) * 50
                 for face in yuzler:
                     g.yuz_sayisi += 1
@@ -1108,8 +1111,11 @@ def govdeler(e) -> List[Govde]:
                         a, d, yuzey = yuz_alani(face, tol, onbellek)
                         dunya = [[donus(q) for q in dd] for dd in d]
                         g.alan += a
+                        dongu_bas.append(len(g.donguler))
                         g.donguler.extend(dunya)
-                        bilgiler.append(_yuz_bilgisi(a * olcek * olcek, dunya, yuzey, donus, olcek))
+                        b = _yuz_bilgisi(a * olcek * olcek, dunya, yuzey, donus, olcek)
+                        b.kenarlar = _dongu_kenarlari(face)
+                        bilgiler.append(b)
                     except AcisHatasi as h:
                         turler[f"{ad}: {h}"] = turler.get(f"{ad}: {h}", 0) + 1
                         if len(g.tani) < 3 and yz is not None:
@@ -1119,6 +1125,13 @@ def govdeler(e) -> List[Govde]:
                     import profil
                     g.profil = profil.coz(bilgiler)
                     g.sac = profil.sac_coz(bilgiler) if g.profil is None else None
+                    try:
+                        g.delikler = profil.delik_bul(bilgiler)
+                    except (ValueError, ZeroDivisionError):
+                        g.delikler = []
+                    for dl in g.delikler:
+                        for i in dl.yuzler:
+                            g.vurgu.extend(bilgiler[i].donguler)
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:
@@ -1131,6 +1144,26 @@ def govdeler(e) -> List[Govde]:
         g = Govde()
         g.hata = "ACIS verisinde katı gövde yok"
         out.append(g)
+    return out
+
+
+def _dongu_kenarlari(face: Kayit) -> list:
+    """Yüzün her döngüsündeki kenar kayıtlarının kimlikleri (yuz_alani'nın döngü sırasıyla)."""
+    out = []
+    loop = face.isaretciler()[2]
+    while loop is not None:
+        k, ilk, c, adim = set(), None, loop.isaretciler()[2], 0
+        ilk = c
+        while c is not None and adim < 100000:
+            cp = c.isaretciler()
+            if len(cp) > 4 and cp[4] is not None:
+                k.add(id(cp[4]))
+            c = cp[1]
+            adim += 1
+            if c is ilk:
+                break
+        out.append(frozenset(k))
+        loop = loop.isaretciler()[1]
     return out
 
 
