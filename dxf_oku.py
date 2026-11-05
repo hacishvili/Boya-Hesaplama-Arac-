@@ -489,9 +489,16 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         govdeler = acis_alan.govdeler(e)
     except Exception as hata:  # bozuk / bilinmeyen ACIS verisi: ezdxf'in ayrıştırıcısı çeşitli hatalar atar
         return [Govde3D(ad, e.dxftype(), katman, None, f"ACIS verisi okunamadı ({hata}).")]
+    return govde3d_listesi(govdeler, ad, e.dxftype(), k, katman)
+
+
+def govde3d_listesi(govdeler: list, ad, tur: str, k: float, katman: str = "",
+                    cozum: str = "çizimi STL olarak isteyin (AutoCAD: STLOUT) ya da parçayı kalıptan ekleyin") \
+        -> List[Govde3D]:
+    """acis_alan.Govde'lerden (çizim biriminde) mm'ye ölçeklenmiş Govde3D'ler. ad: tek ad ya da gövde başına liste."""
     out: List[Govde3D] = []
     for i, g in enumerate(govdeler):
-        isim = ad if len(govdeler) == 1 else f"{ad}.{i + 1}"
+        isim = ad[i] if isinstance(ad, list) else ad if len(govdeler) == 1 else f"{ad}.{i + 1}"
         donguler = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.donguler]
         ag = Ag(donguler, alan_hazir=g.alan * k * k, tel=True, kapali_hazir=g.kapali) if donguler or not g.hata else None
         if ag is not None:
@@ -500,8 +507,7 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
             ag.yardimci = [[(x * k, y * k, z * k) for x, y, z in d] for d in g.yardimci]
         hata = ""
         if g.hata:
-            hata = (g.hata + ". Bu gövdenin alanı DXF'ten hesaplanamıyor: çizimi STL olarak isteyin "
-                    "(AutoCAD: STLOUT) ya da parçayı kalıptan ekleyin.")
+            hata = g.hata + f". Bu gövdenin alanı hesaplanamıyor: {cozum}."
         pr = None
         if g.profil is not None and not hata:
             pr = g.profil
@@ -516,7 +522,7 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
         delikler = [] if hata else g.delikler
         for d in delikler:
             d.olcekle(k)
-        gv = Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler)
+        gv = Govde3D(isim, tur, katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler)
         gv.yuzler = [] if hata else [y.olcekle(k) for y in g.yuz_bilgileri]
         if ag is not None and gv.yuzler:
             ag.yuz_donguleri = [y.donguler for y in gv.yuzler]

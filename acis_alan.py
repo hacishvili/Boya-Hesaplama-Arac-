@@ -102,6 +102,15 @@ class Kayit:
         return [x for x in self.oge if isinstance(x, str) and x not in ("{", "}")]
 
 
+class HazirKayit(Kayit):
+    """Başka biçimden (STEP) kurulan kayıt: eğri / yüzey / kenar örneklemesi hazır verilir."""
+    __slots__ = ("hazir",)
+
+    def __init__(self, ad: str, hazir=None):
+        super().__init__(ad)
+        self.hazir = hazir
+
+
 _BOS = object()
 
 
@@ -565,6 +574,8 @@ def _sayi_dizisi(o: list, i: int) -> Tuple[List[float], int]:
 
 
 def bs3_egri(k: Kayit) -> Bs3Egri:
+    if getattr(k, "hazir", None) is not None:  # STEP: hazır eğri
+        return k.hazir
     o = _alt_tur(k.oge)
     i, rasyonel = _bs3_basi(o)
     derece = int(o[i + 1])
@@ -609,6 +620,8 @@ def bs3_yuzeyler(k: Kayit) -> Tuple[str, List[Bs3Yuzey]]:
     """Spline yüzey kaydındaki okunabilen bütün B-spline yüzeyler (alt tür adıyla). exact_spl_sur'da tek yüzey
     vardır; loft / süpürme gibi yöntem yüzeylerinde tanım eğrilerinin yanında yaklaşık yüzey de saklanır: hangisinin
     yüzün kendisi olduğuna sınır denetimi karar verir (yuz_alani)."""
+    if getattr(k, "hazir", None) is not None:  # STEP: hazır yüzey
+        return "step", [k.hazir]
     o = _alt_tur(k.oge)
     ad = str(o[0]) if o else "?"
     adaylar: List[Bs3Yuzey] = []
@@ -683,6 +696,9 @@ def _kenar_noktalari(kenar: Kayit, yogunluk: int, tol: float, onbellek: dict) ->
     """Kenarın başından sonuna noktaları (kenar yönünde). Parametre eşlemesi köşe noktalarıyla doğrulanır."""
     anahtar = (id(kenar), yogunluk)
     if anahtar in onbellek:
+        return onbellek[anahtar]
+    if getattr(kenar, "hazir", None) is not None:  # STEP: kenar kendi noktalarını verir (başından sonuna)
+        onbellek[anahtar] = kenar.hazir(yogunluk)
         return onbellek[anahtar]
     p = kenar.isaretciler()
     s = kenar.sayilar()
@@ -1133,7 +1149,11 @@ def _donusum(tr: Optional[Kayit]):
 
 def govdeler(e) -> List[Govde]:
     """DXF ACIS varlığındaki her parça (lump) bir gövde; alan mm² değil çizim biriminin karesi."""
-    kayitlar = kayitlari_oku(e)
+    return kayit_govdeleri(kayitlari_oku(e))
+
+
+def kayit_govdeleri(kayitlar: Sequence[Kayit]) -> List[Govde]:
+    """Kayıtlardaki 'body'lerin her parçası (lump) bir gövde (STEP de bu biçime çevrilip buradan geçer)."""
     out: List[Govde] = []
     for body in (k for k in kayitlar if k.ad == "body"):
         bp = body.isaretciler()

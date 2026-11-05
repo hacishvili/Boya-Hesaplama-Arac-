@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Ana pencere: sipariş listesi (kalemler), seçili kalemin ayrıntısı ve önizlemesi, toplamlar.
-Dosya ekleme (DXF / STL) içe aktarma penceresinden, kalıplar kalıp penceresinden geçer."""
+Dosya ekleme (DXF / STEP / STL) içe aktarma penceresinden, kalıplar kalıp penceresinden geçer."""
 from __future__ import annotations
 
 import copy
@@ -25,6 +25,7 @@ import kaliplar
 import pdf_oku
 import proje
 import rapor
+import step_oku
 import stl_oku
 from geometri import Ag, Parca2D
 from hesap import (ISLEM_BIRIMLERI, ISLEM_KAYNAKLARI, Ayarlar, Islem, KaynakTeli, Kalem, Toz, agirlik_kg, islem_miktari,
@@ -33,7 +34,8 @@ from hesap import (ISLEM_BIRIMLERI, ISLEM_KAYNAKLARI, Ayarlar, Islem, KaynakTeli
 from surum import SURUM
 
 UYGULAMA = "Toz Boya Hesabı"
-DOSYA_SUZGECI = ("Çizimler (*.dxf *.dwg *.stl *.pdf);;DXF (*.dxf);;DWG (*.dwg);;STL (*.stl);;"
+DOSYA_SUZGECI = ("Çizimler (*.dxf *.dwg *.step *.stp *.stl *.pdf);;DXF (*.dxf);;DWG (*.dwg);;STEP (*.step *.stp);;"
+                 "STL (*.stl);;"
                  "PDF teknik resim (*.pdf)")
 
 
@@ -152,17 +154,20 @@ class Onizleme(QWidget):
 # ---------------------------------------------------------------- içe aktarma
 
 class IceAktar(QDialog):
-    """DXF / STL'deki parçaları gösterir; kullanıcı birimi, katmanları ve eklenecekleri seçer."""
+    """DXF / STEP / STL'deki parçaları gösterir; kullanıcı birimi, katmanları ve eklenecekleri seçer."""
 
     def __init__(self, yol: str, varsayilan_toz: str, parent=None, oda_yolu: str = ""):
         super().__init__(parent)
         self.yol = yol
         self.dosya_adi = os.path.splitext(os.path.basename(yol))[0]
         self.stl = yol.lower().endswith(".stl")
+        self.step = yol.lower().endswith((".step", ".stp"))
+        self.dxf = not (self.stl or self.step)
         self.toz = varsayilan_toz
         self.setWindowTitle(f"Dosya ekle — {os.path.basename(yol)}")
         self.resize(980, 620)
-        self.doc = None if self.stl else dxf_oku.belge_ac(yol, oda_yolu)
+        self.doc = dxf_oku.belge_ac(yol, oda_yolu) if self.dxf else None
+        self.step_model = step_oku.oku(yol) if self.step else None
         self.sonuc: Optional[dxf_oku.DxfSonuc] = None
         self.ogeler: List = []   # (tür, geometri, kaynak, ad, hata)
 
@@ -172,7 +177,9 @@ class IceAktar(QDialog):
         form = QFormLayout()
         ust.addLayout(form, 1)
         self.birim = QComboBox()
-        kod = 0 if self.stl else int(self.doc.header.get("$INSUNITS", 0) or 0)
+        kod = int(self.doc.header.get("$INSUNITS", 0) or 0) if self.dxf else 0
+        if self.step:
+            kod = next((k for k, (_, o) in dxf_oku.BIRIMLER.items() if k and abs(o - self.step_model.birim_mm) < 1e-9), 4)
         for k, (ad, olcek) in dxf_oku.BIRIMLER.items():
             if k == 0:
                 continue
@@ -180,6 +187,7 @@ class IceAktar(QDialog):
         self.birim.setCurrentIndex(max(0, self.birim.findText(dxf_oku.BIRIMLER.get(kod, ("mm", 1))[0]
                                                               if kod else "mm")))
         birim_notu = ("STL'de birim yazmaz" if self.stl else
+                      f"STEP dosyasında: {dxf_oku.BIRIMLER.get(kod, ('mm', 1))[0]}" if self.step else
                       f"dosyada: {dxf_oku.BIRIMLER.get(kod, (f'kod {kod}', 1))[0]}")
         satir = QHBoxLayout()
         satir.addWidget(self.birim)
@@ -197,7 +205,7 @@ class IceAktar(QDialog):
         self.topla = QCheckBox("Aynı parçaları tek satırda topla (adet olarak)")
         self.topla.setChecked(True)
         self.topla.setToolTip("Alanı, ölçüleri (ve 2D'de kalınlığı) aynı olan parçalar tek kalem olur; adet kopya sayısıdır")
-        if not self.stl:
+        if self.dxf:
             self.kalinlik_notu = QLabel()
             self._kal_satir = QWidget()
             h = QHBoxLayout(self._kal_satir)
@@ -219,7 +227,7 @@ class IceAktar(QDialog):
         form.addRow("", self.birlestir)
         self.katmanlar = QListWidget()
         self.katmanlar.setMaximumHeight(130)
-        if not self.stl:
+        if self.dxf:
             kutu = QGroupBox("Katmanlar (işareti kaldırılan alınmaz)")
             v = QVBoxLayout(kutu)
             v.addWidget(self.katmanlar)
@@ -253,7 +261,7 @@ class IceAktar(QDialog):
         ana.addWidget(dugmeler)
 
         self.katman_kalinlik: Dict[str, float] = {}
-        if not self.stl:
+        if self.dxf:
             t, kaynak, self.katman_kalinlik = dxf_oku.kalinlik_ipucu(self.doc, yol)
             if t is not None:
                 self.kalinlik.setValue(t)
@@ -295,8 +303,11 @@ class IceAktar(QDialog):
         else:
             haric = [self.katmanlar.item(i).text() for i in range(self.katmanlar.count())
                      if self.katmanlar.item(i).checkState() != Qt.Checked]
-            s = dxf_oku.cozumle(self.doc, olcek, haric, self.kesikli.isChecked(),
-                                 kirmizi_haric=self.kirmizi.isChecked())
+            if self.step:
+                s = step_oku.cozumle(self.step_model, olcek)
+            else:
+                s = dxf_oku.cozumle(self.doc, olcek, haric, self.kesikli.isChecked(),
+                                    kirmizi_haric=self.kirmizi.isChecked())
             self.sonuc = s
             if self._katman_ilk:
                 self._katman_ilk = False
@@ -452,7 +463,7 @@ class IceAktar(QDialog):
             self.tablo.setItem(r, 5, QTableWidgetItem())
             self.tablo.item(r, 5).setFlags(Qt.NoItemFlags)
         self.tablo.setColumnHidden(3, not any(t == "2d" or (k and k.get("sac")) for t, _, k, *_ in self.ogeler))
-        if not self.stl:  # 2D sac kalınlığı satırları yalnız 2D parça varken (3D sacın kalınlığı modelden)
+        if self.dxf:  # 2D sac kalınlığı satırları yalnız 2D parça varken (3D sacın kalınlığı modelden)
             iki_d = any(t == "2d" for t, *_ in self.ogeler)
             self._form.setRowVisible(self._kal_satir, iki_d)
             self._form.setRowVisible(self._kal_bilgi, iki_d)
@@ -1548,7 +1559,7 @@ class AnaPencere(QMainWindow):
                 arac.addAction(a)
             return a
 
-        eylem("Çizim ekle (DXF / DWG / STL / PDF)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
+        eylem("Çizim ekle (DXF / DWG / STEP / STL / PDF)", self.dosya_ekle, QStyle.SP_DialogOpenButton, "Ctrl+D", menu_kalem)
         eylem("Kalıptan ekle", self.kalip_ekle, QStyle.SP_FileDialogDetailedView, "Ctrl+K", menu_kalem)
         eylem("Elle alan", self.elle_ekle, QStyle.SP_FileDialogNewFolder, None, menu_kalem)
         eylem("Açınım (DXF)", self.acinim, None, None, menu_kalem)
@@ -1668,7 +1679,7 @@ class AnaPencere(QMainWindow):
 
     # -- ayrıntı paneli
     def _ayrinti_bos(self):
-        w = QLabel("Bir kalem seçin ya da ekleyin.\n\nÇizim ekle: DXF / DWG (2D açınım, 3D yüzey / katı) ya da STL.\n"
+        w = QLabel("Bir kalem seçin ya da ekleyin.\n\nÇizim ekle: DXF / DWG (2D açınım, 3D yüzey / katı), STEP ya da STL.\n"
                    "Kalıptan ekle: boru, profil, konik ayak, çubuk, lama, sac.\n\nDosyaları pencereye sürükleyip "
                    "bırakabilirsiniz.")
         w.setAlignment(Qt.AlignCenter)
@@ -2313,7 +2324,7 @@ class AnaPencere(QMainWindow):
         QMessageBox.about(self, UYGULAMA,
                           f"<b>{UYGULAMA}</b> {SURUM}<br><br>Toz = alan ÷ sarfiyat (m²/kg) ya da (teorik) "
                           "alan × kalınlık × yoğunluk ÷ transfer verimi."
-                          "<br>Alan DXF / DWG'den (2D açınım, 3D yüzey ve katı), STL'den ya da kalıptan."
+                          "<br>Alan DXF / DWG'den (2D açınım, 3D yüzey ve katı), STEP / STL'den ya da kalıptan."
                           "<br><br>© 2026 Enes Özbek · MIT lisansı (LICENSE)<br>Qt / PySide6 (LGPL-3.0), ezdxf (MIT) ve "
                           "diğer bileşenler: UCUNCU_TARAF_LISANSLARI.txt")
 
@@ -2325,7 +2336,7 @@ class AnaPencere(QMainWindow):
     def dropEvent(self, e):
         yollar = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         projeler = [y for y in yollar if y.lower().endswith(".tozboya")]
-        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".dwg", ".stl", ".pdf"))]
+        cizimler = [y for y in yollar if y.lower().endswith((".dxf", ".dwg", ".step", ".stp", ".stl", ".pdf"))]
         if projeler:
             self.ac(yol=projeler[0])
         if cizimler:

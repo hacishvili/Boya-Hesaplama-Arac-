@@ -1,7 +1,7 @@
 # Toz Boya Hesabı
 
 Mobilya, ev aksesuarı ve koltuk ayağı gibi parçalar için toz boya hesabı yapan bir Windows masaüstü programı.
-DXF, DWG ya da STL çizimden **boyanacak alanı**, bu alandan **toz sarfiyatını** ve **maliyeti** hesaplar.
+DXF, DWG, STEP ya da STL çizimden **boyanacak alanı**, bu alandan **toz sarfiyatını** ve **maliyeti** hesaplar.
 Sipariş listesi olarak çalışır: birden çok parça, adet ve toz/renk girilir. Toplamlar toz bazında çıkar,
 böylece satın alma için kaç kg toz gerektiği görülür. Sonuç Excel (CSV) ve PDF olarak alınır.
 
@@ -24,14 +24,14 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
 1. Python 3.12 veya üstü, 64 bit (python.org; kurarken "Add python.exe to PATH" işaretli olmalı).
 2. `KURULUM.cmd`: PySide6 ve ezdxf'i kurar.
 3. `TEST_ALL.cmd`: bütün testler BAŞARILI olmalı.
-4. Programı açmak için: `CALISTIR.cmd` (ya da DXF/STL dosyalarını `CALISTIR.cmd`'nin üstüne sürükleyin).
+4. Programı açmak için: `CALISTIR.cmd` (ya da DXF/STEP/STL dosyalarını `CALISTIR.cmd`'nin üstüne sürükleyin).
 
 **Python gerektirmeyen paket:** `PAKETLE.cmd` çalıştırılınca `dist/TozBoyaHesap/TozBoyaHesap.exe` ve
 `dist/TozBoyaHesap_<sürüm>.zip` oluşur.
 
 ## Kullanım
 
-- **Çizim ekle (DXF / DWG / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
+- **Çizim ekle (DXF / DWG / STEP / STL):** dosyadaki parçaları listeler. Çizim birimini, katmanları ve eklenecek
   parçaları siz seçersiniz. Dosyaları pencereye sürükleyip bırakmak da yeterlidir.
   - **3D gövdeleri tek parça al:** 3D çizimde birden çok gövde varsa pencerede bu kutu işaretlenince seçili gövdelerin
     alanı toplanıp tek kalem olur (her gövdenin adedi alanına çarpılır). Hesaplanamayan gövde toplama girmez, uyarılır.
@@ -164,6 +164,12 @@ Varsayılan boyama: dış yüzey ve uç kesitleri tam; iç yüzey her uçtan bo�
 "açık uç" gibi). Ayrıntı panelinde iç yüzey "tamamı" ya da "boyanmaz" seçilebilir, derinlik ve uç kesitleri
 değiştirilebilir. Plaka, dirsek gibi profil olmayan katıların bütün yüzeyi boyanmış sayılır.
 
+**STEP (.step / .stp).** Katılar (B-rep) AutoCAD katılarıyla aynı yoldan hesaplanır: alan, sac / profil tanıma,
+delik ve havşa, kaynak kenarları ve polisaj yüzey seçimi. Yüzeyler: düzlem, silindir, koni, küre, torus, B-spline;
+doğrusal çekim ve dönel yüzeyler B-spline'a çevrilir. Birim dosyadan okunur (mm, inç, m). Montajda her parça kendi
+yerleşimiyle ayrı gövde olur, adı ürün adından gelir; aynı parçanın kopyaları adet olarak toplanır ve birbirine değen
+parçalarda değme kenarları kaynak yeri önerilir. Ofset yüzey gibi desteklenmeyen yüzü olan gövde hata ile listelenir.
+
 **STL.** STL'de üçgen alanları toplanır. Dosyada birim yazmaz; mm sayılır ve içe aktarırken değiştirilebilir.
 Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüzeyden çok az küçük çıkar.
 
@@ -188,6 +194,7 @@ Eğri yüzeyler üçgenlerle yaklaşık temsil edildiği için alan gerçek yüz
 | `acinim.py` | konik / silindirik sac açınımı ve DXF'i |
 | `profil.py` | profil katılarda dış / iç / uç yüzeylerin tanınması, iç yüzeyin uçlardan boyanan kısmı |
 | `acis_alan.py` | ACIS (SAT / SAB) katı gövdelerin yüzey alanı: düzlem, silindir, koni, küre, torus, spline |
+| `step_oku.py` | STEP (AP203 / AP214 / AP242): katılar ACIS kayıt düzenine çevrilir, montaj yerleşimleri, birimler |
 | `stl_oku.py` | ikili ve metin STL |
 | `kaliplar.py` | boru, profil, konik ayak, çubuk, lama, sac formülleri |
 | `hesap.py` | toz, kalem, ayarlar, özet |
