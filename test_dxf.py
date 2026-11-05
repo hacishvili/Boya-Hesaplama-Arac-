@@ -51,6 +51,20 @@ class Iki(unittest.TestCase):
         self.assertEqual(s.kullanilamayan, 0)
         self.assertIn("DIMENSION", s.atlanan)
 
+    def test_elips_eksi_pi_arti_pi(self):
+        """Parametresi −π … π yazılmış tam elips (ezdxf bundan nokta üretmiyor) dış kontur olur; daireler delik."""
+        doc = yeni()
+        m = doc.modelspace()
+        e = m.add_ellipse((0, 0), (287.5, 0), 190 / 287.5)
+        e.dxf.start_param, e.dxf.end_param = -math.pi, math.pi
+        for x, y in [(0, 64), (0, -64), (160, 0), (-160, 0)]:
+            m.add_circle((x, y), 2.5)
+        m.add_ellipse((1000, 0), (50, 0), 0.5, start_param=0, end_param=math.pi)  # yarım elips: açık, parça değil
+        p = self.oku(doc).parcalar
+        self.assertEqual(len(p), 1)
+        self.assertAlmostEqual(p[0].dis.alan, math.pi * 287.5 * 190, delta=1.0)
+        self.assertEqual(len(p[0].delikler), 4)
+
     def test_az_egik_cizgi_2b_sayilir(self):
         # 3B görünümden alınmış gibi Z'si birkaç yüzde mm oynayan çizgiler: parça yine kapanmalı
         doc = yeni()
