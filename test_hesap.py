@@ -118,6 +118,42 @@ class Toz_(unittest.TestCase):
         self.assertAlmostEqual(kaliplar.hacim("Konik ayak (boru)", {"D1": 40, "D2": 40, "t": 2, "L": 100}),
                                math.pi / 4 * (40 ** 2 - 36 ** 2) * 100)
 
+    def test_islemler(self):
+        a = hesap.Ayarlar()
+        fiyat = {"Kaynak": 40.0, "Havşa": 2.5, "Polisaj": 300.0}
+        for i in a.islemler:
+            i.fiyat = fiyat[i.ad]
+        delik = [{"cap": 6, "havsa_cap": 12, "havsa_aci": 90, "alan": 1, "duvar": 1}] * 3 + \
+                [{"cap": 6, "havsa_cap": 12, "havsa_aci": 0, "alan": 1, "duvar": 1}, {"cap": 8, "alan": 1, "duvar": 1}]
+        k = hesap.Kalem("ayak", {"tur": "3d", "alan": 1e5, "delikler": delik}, adet=10)
+        s = hesap.kalem_sonucu(k, a)
+        self.assertEqual(s.islem_detay, {"Havşa": (3.0, 3 * 2.5 * 10)})  # yalnız konik havşa (kademe değil)
+        k.islemler = {"Kaynak": 0.35, "Polisaj": 0.02, "Havşa": 4}   # havşa elle: çizimdekini ezer
+        s = hesap.kalem_sonucu(k, a)
+        self.assertAlmostEqual(s.islem_tl, 10 * (0.35 * 40 + 0.02 * 300 + 4 * 2.5))
+        self.assertAlmostEqual(s.tutar, s.toz_tl + s.proses_tl + s.islem_tl)
+        self.assertAlmostEqual(s.birim_fiyat, s.tutar / 10)
+        o = hesap.ozet([k, hesap.Kalem("x", {"tur": "elle", "alan_m2": 0.1}, islemler={"Kaynak": 1.0})], a)
+        self.assertAlmostEqual(o.islem_bazinda["Kaynak"][0], 10 * 0.35 + 1.0)
+        self.assertAlmostEqual(o.islem_tl, s.islem_tl + 40.0)
+        self.assertEqual(hesap.Kalem.sozlukten(k.sozluk()).islemler, k.islemler)
+        b = hesap.Ayarlar.sozlukten(a.sozluk())
+        self.assertEqual([(i.ad, i.birim, i.fiyat, i.kaynak) for i in b.islemler],
+                         [("Kaynak", "m", 40.0, ""), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "")])
+        self.assertEqual(len(hesap.Ayarlar.sozlukten({}).islemler), 3)          # eski ayar dosyası: varsayılanlar
+        klasor = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, klasor, True)
+        csv = os.path.join(klasor, "i.csv")
+        rapor.csv_yaz(csv, [k], a)
+        with open(csv, encoding="utf-8-sig") as f:
+            metin = f.read()
+        self.assertIn("İşlem: Polisaj", metin)
+        self.assertIn("Adet fiyatı", metin)
+        self.assertIn("İşlemler", rapor.html_rapor([k], a))
+        k.islemler = {"Kaynak": -1}
+        with self.assertRaises(ValueError):
+            hesap.kalem_sonucu(k, a)
+
     def test_sayi(self):
         self.assertEqual(sayi(1234567.891, 2), "1.234.567,89")
         self.assertEqual(sayi(0.5, 0), "0")

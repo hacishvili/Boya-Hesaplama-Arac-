@@ -13,7 +13,7 @@ Kaynakta hesaba yetecek sayılar saklanır (çizim dosyası olmadan da proje aç
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import kaliplar
 
@@ -32,6 +32,23 @@ class Toz:
         return teorik_kaplama(self.yogunluk, self.kalinlik_um)
 
 
+ISLEM_BIRIMLERI = ("adet", "m", "m²", "kg", "dk", "sabit")
+ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı"}
+
+
+@dataclass
+class Islem:
+    """Boya dışı işlem (kaynak, havşa, polisaj ...): kalem başına miktar × birim fiyat."""
+    ad: str
+    birim: str = "adet"          # ISLEM_BIRIMLERI; "sabit": miktar 1 sayılır (adet başına sabit ücret)
+    fiyat: float = 0.0           # birim başına
+    kaynak: str = ""             # ISLEM_KAYNAKLARI: miktar çizimden gelir (elle değiştirilebilir)
+
+
+def varsayilan_islemler() -> List[Islem]:
+    return [Islem("Kaynak", "m"), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
+
+
 @dataclass
 class Ayarlar:
     yontem: str = "pratik"       # "pratik": alan / sarfiyat;  "teorik": kalınlık · yoğunluk / verim
@@ -41,6 +58,7 @@ class Ayarlar:
     oda_yolu: str = ""           # ODA File Converter (DWG açmak için); boş: kendiliğinden aranır
     guncelleme: bool = True      # açılışta GitHub'da yeni sürüm denetlenir
     metal_yogunluk: float = 7.85  # g/cm³ (çelik; alüminyum 2,70, paslanmaz 7,93), ağırlık için
+    islemler: List[Islem] = field(default_factory=varsayilan_islemler)
     tozlar: List[Toz] = field(default_factory=lambda: [
         Toz("Polyester (dış mekân)", 1.5, 0.0, 70.0, 6.0),
         Toz("Epoksi-polyester (iç mekân)", 1.45, 0.0, 60.0, 6.0),
@@ -71,6 +89,9 @@ class Ayarlar:
         a.oda_yolu = str(d.get("oda_yolu", ""))
         a.guncelleme = bool(d.get("guncelleme", True))
         a.metal_yogunluk = float(d.get("metal_yogunluk", 7.85))
+        if isinstance(d.get("islemler"), list):
+            a.islemler = [Islem(str(x["ad"]), str(x.get("birim", "adet")), float(x.get("fiyat", 0.0)),
+                                str(x.get("kaynak", ""))) for x in d["islemler"]]
         if d.get("tozlar"):
             a.tozlar = [Toz(str(t["ad"]), float(t.get("yogunluk", 1.5)), float(t.get("fiyat", 0.0)),
                             float(t.get("kalinlik_um", 70.0)), float(t.get("sarfiyat_m2_kg", 6.0)))
@@ -193,6 +214,7 @@ class Kalem:
     kat: int = 1                 # kat sayısı (astar + son kat: 2); tozu ve prosesi çarpar
     maske_yuzde: float = 0.0     # boyanmayan alan, çizim alanının yüzdesi
     agirlik_kg: Optional[float] = None    # adet başına, elle; None: kaynaktan hesaplanır
+    islemler: Dict[str, float] = field(default_factory=dict)  # işlem adı → adet başına miktar (elle)
 
     def sozluk(self) -> Dict[str, Any]:
         return asdict(self)
@@ -202,7 +224,8 @@ class Kalem:
         return cls(str(d["ad"]), dict(d["kaynak"]), int(d.get("adet", 1)), float(d.get("maske_cm2", 0.0)),
                    str(d.get("toz", "")), None if d.get("kalinlik_um") is None else float(d["kalinlik_um"]),
                    str(d.get("dosya", "")), int(d.get("kat", 1)), float(d.get("maske_yuzde", 0.0)),
-                   None if d.get("agirlik_kg") is None else float(d["agirlik_kg"]))
+                   None if d.get("agirlik_kg") is None else float(d["agirlik_kg"]),
+                   {str(a): float(x) for a, x in (d.get("islemler") or {}).items()})
 
 
 @dataclass
@@ -218,10 +241,36 @@ class Sonuc:
     agirlik_kg_adet: Optional[float] = None   # None: bilinmiyor
     agirlik_kg: Optional[float] = None        # toplam (adet ile)
     agirlik_elle: bool = False
+    islem_tl: float = 0.0                     # toplam (adet ile)
+    islem_detay: Dict[str, Tuple[float, float]] = field(default_factory=dict)  # ad → (adet başına miktar, toplam)
 
     @property
     def tutar(self) -> float:
-        return self.toz_tl + self.proses_tl
+        return self.toz_tl + self.proses_tl + self.islem_tl
+
+    @property
+    def birim_fiyat(self) -> float:
+        """Adet başına tutar."""
+        return self.tutar / self._adet if self._adet else 0.0
+
+    _adet: int = 1
+
+
+def otomatik_miktar(k: "Kalem", islem: Islem) -> Optional[float]:
+    """İşlem miktarının çizimden gelen değeri (adet başına); çizimden gelmiyorsa None."""
+    if islem.kaynak == "havsa":
+        return float(sum(1 for d in k.kaynak.get("delikler", []) if d.get("havsa_cap") and d.get("havsa_aci")))
+    return None
+
+
+def islem_miktari(k: "Kalem", islem: Islem) -> Tuple[float, bool]:
+    """(adet başına miktar, elle mi). Elle girilen değer çizimden geleni ezer."""
+    if islem.ad in k.islemler:
+        return float(k.islemler[islem.ad]), True
+    if islem.birim == "sabit":
+        return 0.0, False
+    oto = otomatik_miktar(k, islem)
+    return (oto if oto is not None else 0.0), False
 
 
 def agirlik_kg(k: "Kalem", a: Ayarlar) -> Optional[float]:
@@ -249,8 +298,18 @@ def kalem_sonucu(k: Kalem, a: Ayarlar) -> Sonuc:
     kg_adet *= k.kat
     kg = kg_adet * k.adet
     ag = agirlik_kg(k, a)
-    return Sonuc(alan, toplam, t, 1000.0 * kg_adet, kg, kg * toz.fiyat, toplam * a.proses_tl_m2 * k.kat, k.kat,
-                 ag, None if ag is None else ag * k.adet, k.agirlik_kg is not None)
+    s = Sonuc(alan, toplam, t, 1000.0 * kg_adet, kg, kg * toz.fiyat, toplam * a.proses_tl_m2 * k.kat, k.kat,
+              ag, None if ag is None else ag * k.adet, k.agirlik_kg is not None)
+    s._adet = k.adet
+    for i in a.islemler:
+        m, _ = islem_miktari(k, i)
+        if m < 0:
+            raise ValueError(f"{i.ad}: miktar eksi olamaz.")
+        if m:
+            tl = m * i.fiyat * k.adet
+            s.islem_detay[i.ad] = (m, tl)
+            s.islem_tl += tl
+    return s
 
 
 @dataclass
@@ -262,11 +321,13 @@ class Ozet:
     proses_tl: float = 0.0
     toz_bazinda: Dict[str, float] = field(default_factory=dict)   # toz adı → kg (satın alma için)
     agirlik_kg: float = 0.0      # ağırlığı bilinen kalemlerin toplamı
+    islem_tl: float = 0.0
+    islem_bazinda: Dict[str, Tuple[float, float]] = field(default_factory=dict)  # ad → (toplam miktar, tutar)
     agirliksiz: int = 0          # ağırlığı bilinmeyen kalem sayısı
 
     @property
     def tutar(self) -> float:
-        return self.toz_tl + self.proses_tl
+        return self.toz_tl + self.proses_tl + self.islem_tl
 
 
 def ozet(kalemler: List[Kalem], a: Ayarlar) -> Ozet:
@@ -278,6 +339,10 @@ def ozet(kalemler: List[Kalem], a: Ayarlar) -> Ozet:
         o.toz_kg += s.toz_kg
         o.toz_tl += s.toz_tl
         o.proses_tl += s.proses_tl
+        o.islem_tl += s.islem_tl
+        for ad, (m, tl) in s.islem_detay.items():
+            m0, tl0 = o.islem_bazinda.get(ad, (0.0, 0.0))
+            o.islem_bazinda[ad] = (m0 + m * k.adet, tl0 + tl)
         if s.agirlik_kg is None:
             o.agirliksiz += 1
         else:

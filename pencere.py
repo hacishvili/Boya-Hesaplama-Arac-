@@ -4,6 +4,7 @@ Dosya ekleme (DXF / STL) içe aktarma penceresinden, kalıplar kalıp penceresin
 from __future__ import annotations
 
 import copy
+import html
 import math
 import os
 import zipfile
@@ -26,7 +27,8 @@ import proje
 import rapor
 import stl_oku
 from geometri import Ag, Parca2D
-from hesap import (Ayarlar, Kalem, Toz, agirlik_kg, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, kaynak_hacmi,
+from hesap import (ISLEM_BIRIMLERI, ISLEM_KAYNAKLARI, Ayarlar, Islem, Kalem, Toz, agirlik_kg, islem_miktari,
+                   otomatik_miktar, kalem_sonucu, kaynak_aciklamasi, kaynak_alani, kaynak_hacmi,
                    ozet, sayi, teorik_kaplama, yontem_ozeti)
 from surum import SURUM
 
@@ -896,8 +898,8 @@ class AcinimPenceresi(QDialog):
 class AyarPenceresi(QDialog):
     def __init__(self, ayar: Ayarlar, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ayarlar ve toz kütüphanesi")
-        self.resize(820, 480)
+        self.setWindowTitle("Ayarlar, toz ve işlem fiyatları")
+        self.resize(860, 640)
         v = QVBoxLayout(self)
         f = QFormLayout()
         v.addLayout(f)
@@ -950,6 +952,23 @@ class AyarPenceresi(QDialog):
         h.addWidget(sil)
         h.addStretch(1)
         v.addLayout(h)
+        v.addWidget(QLabel("İşlem fiyatları (boya dışı: kaynak, havşa, polisaj ...); kalemde adet başına miktar girilir:"))
+        self.islem = QTableWidget(0, 4)
+        self.islem.setHorizontalHeaderLabels(["İşlem", "Birim", "Birim fiyat", "Miktar nereden"])
+        self.islem.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.islem.setColumnWidth(3, 200)
+        self.islem.verticalHeader().hide()
+        v.addWidget(self.islem, 1)
+        for i in ayar.islemler:
+            self._islem_satiri(i)
+        h = QHBoxLayout()
+        ekle, sil = QPushButton("İşlem ekle"), QPushButton("Seçili işlemi sil")
+        ekle.clicked.connect(lambda: self._islem_satiri(Islem("Yeni işlem")))
+        sil.clicked.connect(lambda: self.islem.currentRow() >= 0 and self.islem.removeRow(self.islem.currentRow()))
+        h.addWidget(ekle)
+        h.addWidget(sil)
+        h.addStretch(1)
+        v.addLayout(h)
         self.kalici = QCheckBox("Bu ayarları yeni projeler için de sakla")
         self.kalici.setChecked(True)
         v.addWidget(self.kalici)
@@ -995,6 +1014,31 @@ class AyarPenceresi(QDialog):
         if hasattr(self, "yontem"):
             self._yontem()
 
+    def _islem_satiri(self, i: Islem):
+        r = self.islem.rowCount()
+        self.islem.insertRow(r)
+        self.islem.setItem(r, 0, QTableWidgetItem(i.ad))
+        birim = QComboBox()
+        birim.addItems(list(ISLEM_BIRIMLERI))
+        birim.setCurrentText(i.birim)
+        birim.setToolTip("sabit: kalemde 1 girilirse adet başına bir kez")
+        self.islem.setCellWidget(r, 1, birim)
+        self.islem.setCellWidget(r, 2, _cift(0.0, 1e7, i.fiyat, 2, 1))
+        kaynak = QComboBox()
+        for k, ad in ISLEM_KAYNAKLARI.items():
+            kaynak.addItem(ad, k)
+        kaynak.setCurrentIndex(max(0, kaynak.findData(i.kaynak)))
+        self.islem.setCellWidget(r, 3, kaynak)
+
+    def islemler(self) -> List[Islem]:
+        out = []
+        for r in range(self.islem.rowCount()):
+            ad = (self.islem.item(r, 0).text() or "").strip()
+            if ad:
+                out.append(Islem(ad, self.islem.cellWidget(r, 1).currentText(), self.islem.cellWidget(r, 2).value(),
+                                 self.islem.cellWidget(r, 3).currentData() or ""))
+        return out
+
     def _sil(self):
         r = self.tablo.currentRow()
         if r >= 0 and self.tablo.rowCount() > 1:
@@ -1005,13 +1049,18 @@ class AyarPenceresi(QDialog):
         if any(not a for a in adlar) or len(set(adlar)) != len(adlar):
             QMessageBox.warning(self, UYGULAMA, "Her tozun boş olmayan ve diğerlerinden farklı bir adı olmalı.")
             return
+        adlar = [i.ad for i in self.islemler()]
+        if len(set(adlar)) != len(adlar):
+            QMessageBox.warning(self, UYGULAMA, "İşlem adları birbirinden farklı olmalı.")
+            return
         self.accept()
 
     def ayar(self) -> Ayarlar:
         a = Ayarlar(yontem="teorik" if self.yontem.currentIndex() == 1 else "pratik",
                     verim=self.verim.value() / 100.0, proses_tl_m2=self.proses.value(),
                     para=self.para.text().strip() or "TL", oda_yolu=self.oda.text().strip(),
-                    guncelleme=self.guncelleme.isChecked(), metal_yogunluk=self.metal.value(), tozlar=[])
+                    guncelleme=self.guncelleme.isChecked(), metal_yogunluk=self.metal.value(), tozlar=[],
+                    islemler=self.islemler())
         for r in range(self.tablo.rowCount()):
             w = lambda c: self.tablo.cellWidget(r, c).value()
             a.tozlar.append(Toz(self.tablo.item(r, 0).text().strip(), yogunluk=w(3), fiyat=w(2), kalinlik_um=w(4),
@@ -1022,7 +1071,7 @@ class AyarPenceresi(QDialog):
 # ---------------------------------------------------------------- ana pencere
 
 SUTUNLAR = ["Parça", "Açıklama", "Adet", "Alan / adet (m²)", "Toz", "Kalınlık (µm)", "Toz / adet (g)",
-            "Toplam toz (kg)", "Tutar", "Ağırlık / adet (kg)"]
+            "Toplam toz (kg)", "Tutar", "Ağırlık / adet (kg)", "Adet fiyatı"]
 
 
 class AnaPencere(QMainWindow):
@@ -1163,12 +1212,12 @@ class AnaPencere(QMainWindow):
             veri = [k.ad, kaynak_aciklamasi(k.kaynak) + rapor.ek_aciklama(k), str(k.adet), sayi(s.alan_m2, 4),
                     self.ayar.toz(k.toz).ad, "—" if s.kalinlik_um is None else sayi(s.kalinlik_um, 0),
                     sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3), f"{sayi(s.tutar, 2)} {self.ayar.para}",
-                    rapor.agirlik_metni(s.agirlik_kg_adet)]
+                    rapor.agirlik_metni(s.agirlik_kg_adet), f"{sayi(s.birim_fiyat, 2)} {self.ayar.para}"]
         except ValueError as h:
-            veri = [k.ad, f"HATA: {h}", str(k.adet), "—", "", "", "", "", "", ""]
+            veri = [k.ad, f"HATA: {h}", str(k.adet), "—", "", "", "", "", "", "", ""]
         for c, x in enumerate(veri):
             it = QTableWidgetItem(x)
-            if c in (2, 3, 5, 6, 7, 8, 9):
+            if c in (2, 3, 5, 6, 7, 8, 9, 10):
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             if c != 2:
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -1208,7 +1257,10 @@ class AnaPencere(QMainWindow):
         self.toplam.setText(
             f"<b>{len(self.kalemler)}</b> kalem, <b>{o.toplam_adet}</b> adet · Toplam alan <b>{sayi(o.toplam_m2, 2)} m²</b>"
             f" · Toz <b>{sayi(o.toz_kg, 2)} kg</b> ({yontem_ozeti(self.ayar)})<br>"
-            f"{tozlar}<br>Toz {sayi(o.toz_tl, 2)} {p} + proses {sayi(o.proses_tl, 2)} {p} = <b>{sayi(o.tutar, 2)} {p}</b>"
+            f"{tozlar}<br>Toz {sayi(o.toz_tl, 2)} {p} + proses {sayi(o.proses_tl, 2)} {p}"
+            + (" + işlem " + " · ".join(f"{html.escape(ad)} {sayi(tl, 2)}" for ad, (_, tl) in o.islem_bazinda.items())
+               + f" {p}" if o.islem_tl else "")
+            + f" = <b>{sayi(o.tutar, 2)} {p}</b>"
             f" · Ağırlık <b>{sayi(o.agirlik_kg, 1)} kg</b>"
             + (f" ({o.agirliksiz} kalemin ağırlığı bilinmiyor)" if o.agirliksiz else "") + uyari)
 
@@ -1282,6 +1334,20 @@ class AnaPencere(QMainWindow):
             b.setTitle(f"{len(kalemler)} kalem seçili ({sum(k.adet for k in kalemler)} adet)")
         adet.valueChanged.connect(adet_ata)
         f.addRow("Adet (hepsine)", adet)
+        for i in self.ayar.islemler:  # boya dışı işlem miktarı hepsine (çizimden gelen değer ezilir)
+            basamak = 0 if i.birim in ("adet", "sabit") else 3
+            ms = {islem_miktari(k, i)[0] for k in kalemler}
+            sp = _cift(0.0, 1e6, next(iter(ms)) if len(ms) == 1 else 0.0, basamak, 1 if basamak == 0 else 0.1,
+                       "" if i.birim == "sabit" else i.birim)
+            if len(ms) > 1:
+                sp.setToolTip("Miktarlar farklı; değer girerseniz seçili kalemlerin hepsine yazılır")
+
+            def islem_ata(x, ad=i.ad):
+                for r in satirlar:
+                    self.kalemler[r].islemler = {**self.kalemler[r].islemler, ad: x}
+                self._coklu_sonrasi(satirlar, sonuc)
+            sp.valueChanged.connect(islem_ata)
+            f.addRow(f"{i.ad} (hepsine)", sp)
         if not self.ayar.pratik:
             kal = _cift(10.0, 1000.0, self.ayar.toz(kalemler[0].toz).kalinlik_um, 0, 5, "µm")
 
@@ -1456,6 +1522,9 @@ class AnaPencere(QMainWindow):
         toz.currentTextChanged.connect(toz_degisti)
         v.addWidget(b)
 
+        if self.ayar.islemler:
+            v.addWidget(self._islem_kutusu(r))
+
         ag = QGroupBox("Ağırlık")
         af = QFormLayout(ag)
         hesapli = agirlik_kg(Kalem(k.ad, k.kaynak), self.ayar)
@@ -1484,6 +1553,49 @@ class AnaPencere(QMainWindow):
                                else kaliplar.aciklama(k.kaynak["kalip"], k.kaynak.get("deger", {}))))
         return w
 
+    def _islem_kutusu(self, r: int) -> QGroupBox:
+        """Boya dışı işlemler: adet başına miktar. Çizimden gelen (havşa) değer "elle" işaretlenince değiştirilir."""
+        k = self.kalemler[r]
+        g = QGroupBox("İşlemler (adet başına)")
+        f = QFormLayout(g)
+        p = self.ayar.para
+
+        def yaz(ad, x):
+            d = dict(k.islemler)
+            if x is None:
+                d.pop(ad, None)
+            else:
+                d[ad] = x
+            self._guncelle(r, islemler=d)
+
+        for i in self.ayar.islemler:
+            m, elle = islem_miktari(k, i)
+            basamak = 0 if i.birim in ("adet", "sabit") else 3
+            sp = _cift(0.0, 1e6, m, basamak, 1 if basamak == 0 else 0.1, "" if i.birim == "sabit" else i.birim)
+            sp.setToolTip(f"Birim fiyat {sayi(i.fiyat, 2)} {p}/{i.birim} (Ayarlar)")
+            h = QHBoxLayout()
+            h.addWidget(sp, 1)
+            oto = otomatik_miktar(k, i)
+            if i.kaynak and oto is not None:
+                cb = QCheckBox(f"elle (çizimden {sayi(oto, 0)})")
+                cb.setChecked(elle)
+                sp.setEnabled(elle)
+
+                def degis(b_, ad=i.ad, sp=sp, oto=oto):
+                    sp.setEnabled(b_)
+                    if not b_:
+                        sp.blockSignals(True)
+                        sp.setValue(oto)
+                        sp.blockSignals(False)
+                    yaz(ad, sp.value() if b_ else None)
+                cb.toggled.connect(degis)
+                sp.valueChanged.connect(lambda x, ad=i.ad, cb=cb: cb.isChecked() and yaz(ad, x))
+                h.addWidget(cb)
+            else:
+                sp.valueChanged.connect(lambda x, ad=i.ad: yaz(ad, x if x else None))
+            f.addRow(i.ad + (" (1: uygulanır)" if i.birim == "sabit" else ""), h)
+        return g
+
     def _ayrinti_sonuc(self, r: int):
         k = self.kalemler[r]
         try:
@@ -1497,7 +1609,10 @@ class AnaPencere(QMainWindow):
                 + f" · toplam <b>{sayi(s.toz_kg, 3)} kg</b>"
                 + ("" if s.agirlik_kg is None else
                    f"<br>Ağırlık: <b>{sayi(s.agirlik_kg_adet, 3)} kg</b> / adet · toplam {sayi(s.agirlik_kg, 2)} kg")
-                + f"<br>Tutar: {sayi(s.toz_tl, 2)} + {sayi(s.proses_tl, 2)} = <b>{sayi(s.tutar, 2)} {p}</b>")
+                + "".join(f"<br>{html.escape(ad)}: {sayi(m, 3)} / adet → {sayi(tl, 2)} {p}" for ad, (m, tl) in s.islem_detay.items())
+                + f"<br>Tutar: toz {sayi(s.toz_tl, 2)} + proses {sayi(s.proses_tl, 2)}"
+                + (f" + işlem {sayi(s.islem_tl, 2)}" if s.islem_tl else "")
+                + f" = <b>{sayi(s.tutar, 2)} {p}</b> · adet başına <b>{sayi(s.birim_fiyat, 2)} {p}</b>")
         except ValueError as h:
             self._sonuc_etiketi.setText(f"<span style='color:#a02020'>{h}</span>")
 

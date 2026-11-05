@@ -371,6 +371,49 @@ class Arayuz(unittest.TestCase):
         w.degisti = False
         w.close()
 
+    def test_islem_fiyatlari(self):
+        import test_profil
+        w = pencere.AnaPencere()
+        d = pencere.AyarPenceresi(w.ayar)
+        self.assertEqual([i.ad for i in d.islemler()], ["Kaynak", "Havşa", "Polisaj"])
+        d.islem.cellWidget(0, 2).setValue(40.0)   # kaynak 40 / m
+        d.islem.cellWidget(1, 2).setValue(2.5)    # havşa 2,5 / adet
+        d._islem_satiri(pencere.Islem("Kumlama", "m²", 50.0))
+        w.ayar = d.ayar()
+        self.assertEqual(len(w.ayar.islemler), 4)
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        doc.modelspace().add_3dsolid().sat = test_profil.delikli_plaka([(20, 20, "havsa"), (40, 20, "havsa"),
+                                                                        (60, 30, "duz")])
+        yol = os.path.join(self.klasor, "islem.dxf")
+        doc.saveas(yol)
+        w.kalemler.extend(pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w).kalemler())
+        w.kalemler.append(pencere.Kalem("b", {"tur": "elle", "alan_m2": 0.1}, toz=w.ayar.tozlar[0].ad))
+        w._yenile(0)
+        s = kalem_sonucu(w.kalemler[0], w.ayar)
+        self.assertEqual(s.islem_detay["Havşa"], (2.0, 5.0))           # çizimden 2 havşa
+        panel = w.ayrinti_alan.widget()
+        cb = [c for c in panel.findChildren(pencere.QCheckBox) if c.text().startswith("elle (çizimden 2)")][0]
+        cb.setChecked(True)
+        sp = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.isEnabled() and x.suffix() == " adet"][0]
+        sp.setValue(3)
+        self.assertEqual(w.kalemler[0].islemler["Havşa"], 3)
+        cb.setChecked(False)                                           # çizime döner
+        self.assertNotIn("Havşa", w.kalemler[0].islemler)
+        kaynak = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.suffix() == " m"][0]
+        kaynak.setValue(0.5)
+        self.assertAlmostEqual(kalem_sonucu(w.kalemler[0], w.ayar).islem_tl, 0.5 * 40 + 2 * 2.5)
+        self.assertIn("Kaynak", w.toplam.text())
+        self.assertTrue(w.tablo.item(0, 10).text().endswith(w.ayar.para))
+        # çoklu seçimde polisaj hepsine
+        w.tablo.setRangeSelected(pencere.QTableWidgetSelectionRange(0, 0, 1, len(pencere.SUTUNLAR) - 1), True)
+        w._secim()
+        sp = [x for x in w.ayrinti_alan.widget().findChildren(pencere.QDoubleSpinBox) if x.suffix() == " m²"][0]
+        sp.setValue(0.2)
+        self.assertEqual([k.islemler.get("Polisaj") for k in w.kalemler], [0.2, 0.2])
+        w.degisti = False
+        w.close()
+
 
 if __name__ == "__main__":
     unittest.main()

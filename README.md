@@ -90,6 +90,11 @@ Maske düşüldükten sonra kalan alan boyanır: `alan = çizim alanı × (1 −
 çizilir. Delik ve kesik duvarları alana dahildir; "Delik içleri boyanmaz" işaretlenirse duvarlar düşülür (havşa ağzı
 boyanır). Kenardan açılan (açık uçlu) çentikler ve boru duvarındaki delikler listelenmez, alana yine dahildir.
 
+**İşlemler** (boya dışı: kaynak, havşa, polisaj ...): Ayarlar'da her işlemin birimi (adet, m, m², kg, dk, sabit) ve
+birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına miktar girilir; havşa sayısı çizimden gelir
+("elle" işaretlenince değiştirilir). Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
+fiyat × adet`; tabloda ve raporlarda adet fiyatı ve işlem dökümü yer alır.
+
 **Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,
 3D sacta kalınlık × yüz, 3D profilde ortadaki kesitin metal alanı × boy (yuvarlatılmış köşelerde yaklaşık), kapalı
 STL / mesh gövdede ağın hacmi, kalıplarda ölçülerden. Dolu ACIS gövdelerde ve elle alan kalemlerinde hesaplanmaz
