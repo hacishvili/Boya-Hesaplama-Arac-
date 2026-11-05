@@ -255,10 +255,33 @@ class Acis(unittest.TestCase):
             self.kare_yuz(g, self.spline(g, 10.0, dv), 10.0)
             self.assertAlmostEqual(self.tek(g).alan, 100.0, places=6)
         g = Govde()
-        self.kare_yuz(g, self.spline(g, 10.0), 5.0)  # döngü yüzeyin yalnız bir kısmını alıyor
+        self.kare_yuz(g, self.spline(g, 10.0), 5.0)  # kırpılmış: döngü yüzeyin yalnız bir kısmını alıyor
+        self.assertAlmostEqual(self.tek(g).alan, 25.0, places=6)
+        g = Govde()
+        self.kare_yuz(g, self.spline(g, 10.0), 5.0, z=1.0)  # döngü yüzeyin üzerinde değil
         s = dxf_kati(self.klasor, [g.satirlar()])
-        self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", s.govdeler[0].hata)
+        self.assertIn("tanınmayan spline yüz (exact_spl_sur)", s.govdeler[0].hata)
         self.assertEqual(s.govdeler[0].alan, 0.0)
+
+    def test_kirpilmis_spline_boru(self):
+        """Rasyonel B-spline silindir (u periyodik, z 0–50); yüz z = 10 ile z = 40 arasındaki çemberlerle kırpılmış:
+        dolanan döngüler, dikiş kenarı yok."""
+        r, w = 8.0, math.sqrt(0.5)
+        halka = [(r, 0, 1), (r, r, w), (0, r, 1), (-r, r, w), (-r, 0, 1), (-r, -r, w), (0, -r, 1), (r, -r, w),
+                 (r, 0, 1)]
+        pts = []
+        for z in (0.0, 50.0):
+            for x, y, ag in halka:
+                pts += [x, y, z, ag]
+        g = Govde()
+        yz = g.s.ekle("spline-surface", "forward", "{", "exact_spl_sur", 22600, "full", "nurbs", 2, 1,
+                      "periodic", "open", "none", "none", 5, 2, 0.0, 2, 0.25, 2, 0.5, 2, 0.75, 2, 1.0, 2,
+                      0.0, 1, 1.0, 1, *pts, "}", "I", "I", "I", "I")
+        alt, ust = g.kose((r, 0, 10)), g.kose((r, 0, 40))
+        e1 = g.kenar(alt, 0, alt, TAM, g.daire((0, 0, 10), (0, 0, 1), (r, 0, 0)))
+        e2 = g.kenar(ust, 0, ust, TAM, g.daire((0, 0, 40), (0, 0, 1), (r, 0, 0)))
+        g.yuz(yz, [[(e1, False)], [(e2, True)]])
+        self.assertAlmostEqual(self.tek(g).alan, 2 * math.pi * r * 30, delta=1e-4 * 2 * math.pi * r * 30)
 
     def test_donusum_ve_olcek(self):
         c, sn = math.cos(0.7), math.sin(0.7)

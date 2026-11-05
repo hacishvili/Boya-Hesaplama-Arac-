@@ -116,9 +116,10 @@ Daireler tam formülle (πr²) hesaplanır. Yaylar en çok 0,0005 mm sehimle ço
   gövde değil).
 - **AutoCAD katıları (3DSOLID, metin ya da ikili ACIS):** yüzeyin türüne göre:
   - **düzlem, silindir, koni, küre, torus (boru dirseği):** kesin formülle;
-  - **spline (NURBS):** loft yapılmış konik / oval ayak gibi kırpılmamış yüzeyler sayısal integralle.
+  - **spline (NURBS):** loft yapılmış konik / oval ayak gibi yüzeyler sayısal integralle; kırpılmış (yüzeyin
+    yalnız bir kısmını kullanan) yüzlerde kenarlar yüzeyin parametre alanına izdüşürülür, alan o bölge üzerinden.
 
-  Kırpılmış spline yüzler ve desteklenmeyen yüzey türleri hesaplanmaz. Program böyle bir gövdeye eksik alan
+  Kenarları yüzeyin üzerinde olmayan spline yüzler ve desteklenmeyen yüzey türleri hesaplanmaz. Program böyle bir gövdeye eksik alan
   vermez; gövde hata ile listelenir. O zaman çizimi STL olarak isteyin (AutoCAD'de `STLOUT`) ya da parçayı
   kalıptan ekleyin.
 

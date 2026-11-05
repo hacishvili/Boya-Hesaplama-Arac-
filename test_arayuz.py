@@ -219,7 +219,7 @@ class Arayuz(unittest.TestCase):
     def test_hata_raporu(self):
         import test_acis as T
         g = T.Govde()
-        T.Acis.kare_yuz(None, g, T.Acis.spline(None, g, 10.0), 5.0)  # kırpılmış spline yüz: hesaplanmaz
+        T.Acis.kare_yuz(None, g, T.Acis.spline(None, g, 10.0), 5.0, z=1.0)  # döngü yüzeyde değil: hesaplanmaz
         doc = ezdxf.new("R2007")
         doc.header["$INSUNITS"] = 4
         doc.modelspace().add_3dsolid().sat = g.satirlar()
@@ -229,7 +229,7 @@ class Arayuz(unittest.TestCase):
         self.assertFalse(d.rapor_dugmesi.isHidden())
         self.assertIn("exact_spl_sur", d.tablo.item(0, 6).toolTip())
         metin = d.hata_raporu_metni()
-        self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", metin)
+        self.assertIn("tanınmayan spline yüz (exact_spl_sur)", metin)
         self.assertIn("{ exact_spl_sur 22600 full nubs 1 1", metin)
 
     def test_kalinlik_cizimden(self):

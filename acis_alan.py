@@ -304,6 +304,194 @@ class Bs3Yuzey:
         return toplam
 
 
+    # ------------------------------------------------ kırpılmış yüz: parametre alanında Green teoremi
+
+    def _turev(self, u: float, v: float):
+        hu = (self.u1 - self.u0) * 1e-6
+        hv = (self.v1 - self.v0) * 1e-6
+        Su = _kat(_cik(self.nokta(min(u + hu, self.u1), v), self.nokta(max(u - hu, self.u0), v)),
+                  1.0 / (min(u + hu, self.u1) - max(u - hu, self.u0)))
+        Sv = _kat(_cik(self.nokta(u, min(v + hv, self.v1)), self.nokta(u, max(v - hv, self.v0))),
+                  1.0 / (min(v + hv, self.v1) - max(v - hv, self.v0)))
+        return Su, Sv
+
+    def _jakobi(self, u: float, v: float) -> float:
+        return _boy(_dis(*self._turev(u, v)))
+
+    def _kapali(self, esik: float):
+        """(u'da kapalı, v'de kapalı): karşı kenarlar aynı eğri mi."""
+        ku = all(_boy(_cik(self.nokta(self.u0, v), self.nokta(self.u1, v))) <= esik
+                 for v in (self.v0 + (self.v1 - self.v0) * i / 8 for i in range(9)))
+        kv = all(_boy(_cik(self.nokta(u, self.v0), self.nokta(u, self.v1))) <= esik
+                 for u in (self.u0 + (self.u1 - self.u0) * i / 8 for i in range(9)))
+        return ku, kv
+
+    def _sar(self, u: float, v: float, ku: bool, kv: bool):
+        if ku:
+            u = self.u0 + (u - self.u0) % (self.u1 - self.u0)
+        if kv:
+            v = self.v0 + (v - self.v0) % (self.v1 - self.v0)
+        return min(max(u, self.u0), self.u1), min(max(v, self.v0), self.v1)
+
+    def _izgara(self):
+        if not hasattr(self, "_izg"):
+            ua = sorted(set(self.du[self.pu:self.nu + 1]))
+            va = sorted(set(self.dv[self.pv:self.nv + 1]))
+            ku = max(2, min(6, 600 // max(1, len(ua))))
+            kv = max(2, min(6, 600 // max(1, len(va))))
+            us = [a + (b - a) * i / ku for a, b in zip(ua, ua[1:]) for i in range(ku)] + [ua[-1]]
+            vs = [a + (b - a) * i / kv for a, b in zip(va, va[1:]) for i in range(kv)] + [va[-1]]
+            self._izg = [(u, v, self.nokta(u, v)) for u in us for v in vs]
+        return self._izg
+
+    def ters(self, q: V3, u: float, v: float, ku: bool, kv: bool):
+        """q'ya en yakın yüzey noktasının parametreleri ve uzaklık (Gauss–Newton, (u, v)'den başlayarak)."""
+        for _ in range(40):
+            S = self.nokta(u, v)
+            Su, Sv = self._turev(u, v)
+            r = _cik(q, S)
+            a, b, c = _ic(Su, Su), _ic(Su, Sv), _ic(Sv, Sv)
+            det = a * c - b * b
+            if det <= 1e-24 * max(a * c, 1e-300):
+                break
+            ru, rv = _ic(Su, r), _ic(Sv, r)
+            du, dv = (c * ru - b * rv) / det, (a * rv - b * ru) / det
+            u, v = self._sar(u + du, v + dv, ku, kv)
+            if abs(du) <= 1e-13 * (self.u1 - self.u0) and abs(dv) <= 1e-13 * (self.v1 - self.v0):
+                break
+        return u, v, _boy(_cik(q, self.nokta(u, v)))
+
+    def kirpik_alan(self, donguler: List[List[V3]], esik: float, ara: Optional[List[List[bool]]] = None) -> float:
+        """Döngülerle sınırlı yüz parçasının alanı. Döngü noktaları parametre alanına izdüşürülür; alan Green
+        teoremiyle: A = |∮ F du|, F(u, v) = ∫_{v0}^{v} |S_u × S_v| dt (ya da u ile v yer değiştirmiş). Periyodik
+        yönde dolanan döngülerde (boru yüzeyi) dikiş boyunca du = 0 olduğundan dolanan yön dış integral olur.
+        Döngü noktası yüzeyde değilse AcisHatasi; ara[i][j] doğruysa nokta sıklaştırmada eklenmiş kiriş noktasıdır
+        (yüzeyde olması beklenmez, denetlenmez)."""
+        ku, kv = self._kapali(esik)
+        Tu, Tv = self.u1 - self.u0, self.v1 - self.v0
+        kutup = []  # tekil kenarlar: (sabit yön 'u' / 'v', değer, nokta)
+        for v in (self.v0, self.v1):
+            if _boy(_cik(self.nokta(self.u0, v), self.nokta(self.u1, v))) <= esik and \
+                    _boy(_cik(self.nokta(0.5 * (self.u0 + self.u1), v), self.nokta(self.u0, v))) <= esik:
+                kutup.append(("v", v, self.nokta(self.u0, v)))
+        for u in (self.u0, self.u1):
+            if _boy(_cik(self.nokta(u, self.v0), self.nokta(u, self.v1))) <= esik and \
+                    _boy(_cik(self.nokta(u, 0.5 * (self.v0 + self.v1)), self.nokta(u, self.v0))) <= esik:
+                kutup.append(("u", u, self.nokta(u, self.v0)))
+        izg = self._izgara()
+        pdl = []
+        for di, d in enumerate(donguler):
+            if len(d) < 3:
+                continue
+            uv, kt = [], []
+            onceki = None
+            for qi, q in enumerate(d):
+                ek = ara is not None and ara[di][qi]
+                if onceki is not None:
+                    u, v, h = self.ters(q, onceki[0], onceki[1], ku, kv)
+                else:
+                    h = float("inf")
+                if h > esik:
+                    u0, v0, _ = min(izg, key=lambda x: _ic(_cik(x[2], q), _cik(x[2], q)))
+                    u, v, h = self.ters(q, u0, v0, ku, kv)
+                if h > esik and not ek:
+                    raise AcisHatasi("döngü noktası spline yüzeyin üzerinde değil")
+                onceki = (u, v)
+                uv.append([u, v])
+                kt.append(next((k for k in kutup if _boy(_cik(q, k[2])) <= esik), None))
+            n = len(uv)
+            if all(kt):
+                raise AcisHatasi("döngü yalnız tekil noktada")
+            # periyodik yönde sürekli (açılmış) parametre; kutup noktaları (serbest parametresi belirsiz) atlanır
+            for yon, kap, T in ((0, ku, Tu), (1, kv, Tv)):
+                if not kap:
+                    continue
+                son = None
+                for i in range(n):
+                    if kt[i] is not None and (kt[i][0] == "v") == (yon == 0):
+                        continue
+                    if son is not None:
+                        uv[i][yon] = son + _sar_T(uv[i][yon] - son, T)
+                    son = uv[i][yon]
+            # kutuptaki noktada serbest parametre: komşu (kutupta olmayan) noktalar arasında doğrusal
+            for i in range(n):
+                if kt[i] is None:
+                    continue
+                serbest = 0 if kt[i][0] == "v" else 1
+                a = next(j for j in range(1, n) if kt[(i - j) % n] is None)
+                b = next(j for j in range(1, n) if kt[(i + j) % n] is None)
+                pa, pb = uv[(i - a) % n][serbest], uv[(i + b) % n][serbest]
+                if (ku if serbest == 0 else kv):
+                    T = Tu if serbest == 0 else Tv
+                    pa = pb - _sar_T(pb - pa, T) if (i - a) % n > i else pa
+                    pb = pa + _sar_T(pb - pa, T) if (i + b) % n < i else pb
+                uv[i][serbest] = pa + (pb - pa) * a / (a + b)
+                uv[i][1 - serbest] = kt[i][1]
+            pdl.append(uv)
+        if not pdl:
+            raise AcisHatasi("spline yüzün döngüsü yok")
+
+        def dolanma(d, yon, T):
+            net = sum(b[yon] - a[yon] for a, b in zip(d, d[1:])) + _sar_T(d[0][yon] - d[-1][yon], T)
+            return abs(round(net / T))
+
+        dol_u = sum(dolanma(d, 0, Tu) for d in pdl) if ku else 0
+        dol_v = sum(dolanma(d, 1, Tv) for d in pdl) if kv else 0
+        if dol_u and dol_v:
+            raise AcisHatasi("iki yönde dolanan spline yüz desteklenmez")
+        ua = sorted(set(self.du[self.pu:self.nu + 1]))
+        va = sorted(set(self.dv[self.pv:self.nv + 1]))
+        ic_v = bool(dol_u) or (not dol_v and len(va) <= len(ua))  # iç integral v boyunca mı
+        gx = [-0.9324695142, -0.6612093865, -0.2386191861, 0.2386191861, 0.6612093865, 0.9324695142]
+        gw = [0.1713244924, 0.3607615730, 0.4679139346, 0.4679139346, 0.3607615730, 0.1713244924]
+        aralik = va if ic_v else ua
+        bas, T, kap = (self.v0, Tv, kv) if ic_v else (self.u0, Tu, ku)
+
+        def parca(sabit, a, b):
+            if b <= a:
+                return 0.0
+            s = 0.0
+            for x, w in zip(gx, gw):
+                t = 0.5 * (a + b) + 0.5 * (b - a) * x
+                s += w * (self._jakobi(sabit, t) if ic_v else self._jakobi(t, sabit))
+            return 0.5 * (b - a) * s
+
+        def F(sabit, t):
+            """∫_{bas}^{t} J; t açılmış olabilir (kapalı yönde tam tur katkısıyla)."""
+            k = 0
+            if kap:
+                k = math.floor((t - bas) / T)
+                t -= k * T
+            t = min(max(t, aralik[0]), aralik[-1])
+            s = 0.0
+            for a, b in zip(aralik, aralik[1:]):
+                if a >= t:
+                    break
+                s += parca(sabit, a, min(b, t))
+            if k:
+                s += k * sum(parca(sabit, a, b) for a, b in zip(aralik, aralik[1:]))
+            return s
+
+        toplam = 0.0
+        dis_y, ic_y = (0, 1) if ic_v else (1, 0)
+        kap_dis, T_dis = (ku, Tu) if dis_y == 0 else (kv, Tv)
+        for d in pdl:
+            Fs = [F(self._sar(p[0], p[1], ku, kv)[dis_y], p[ic_y]) for p in d]
+            n = len(d)
+            for i in range(n):
+                j = (i + 1) % n
+                ds = d[j][dis_y] - d[i][dis_y]
+                if j == 0 and kap_dis:  # kapanış adımı: tam tur farkı atılır
+                    ds = _sar_T(ds, T_dis)
+                toplam += 0.5 * (Fs[i] + Fs[j]) * ds
+        return abs(toplam)
+
+
+def _sar_T(a: float, T: float) -> float:
+    """a'yı (−T/2, T/2] aralığına getirir."""
+    return a - T * math.floor(a / T + 0.5)
+
+
 def _alt_tur(oge: list) -> list:
     """Kaydın ilk { ... } bloğunun öğeleri (iç içe bloklar dahil, sınırlar hariç)."""
     out, derin, basladi = [], 0, False
@@ -708,7 +896,20 @@ def yuz_alani(face: Kayit, tol: float, onbellek: dict) -> Tuple[float, List[List
             except AcisHatasi:
                 continue
             return b.alan(lambda q: q), pts, yuzey
-        raise AcisHatasi(f"kırpılmış ya da tanınmayan spline yüz ({yuzey.alt_tur})")
+        # kırpılmış yüz: döngüler parametre alanına izdüşürülür (Bs3Yuzey.kirpik_alan); üç sıklıkla Romberg
+        esik = max(tol * 20, _olcu(pts) * 2e-4)
+        for b in yuzey.adaylar:
+            try:
+                deger = []
+                for y in (2, 4, 8):
+                    dl, ara = _sik([_dongu(l, y, tol, onbellek) for l in donguler], y)
+                    deger.append(b.kirpik_alan(dl, esik, ara))
+            except AcisHatasi:
+                continue
+            a1, a2, a3 = deger
+            r1, r2 = (4 * a2 - a1) / 3, (4 * a3 - a2) / 3
+            return (16 * r2 - r1) / 15, pts, yuzey
+        raise AcisHatasi(f"tanınmayan spline yüz ({yuzey.alt_tur}): kenarlar yüzeyin üzerinde değil")
 
     if yuzey.tur == "koni" and yuzey.egim != 0.0:
         yuzey.olcum = []
@@ -759,6 +960,33 @@ def yuz_alani(face: Kayit, tol: float, onbellek: dict) -> Tuple[float, List[List
         if abs(alan - yedek) > 1e-6 * max(1.0, alan):
             alan = yedek
     return alan, dl, yuzey
+
+
+def _olcu(donguler: List[List[V3]]) -> float:
+    q = [p for d in donguler for p in d]
+    if not q:
+        return 1.0
+    return max(max(p[i] for p in q) - min(p[i] for p in q) for i in range(3)) or 1.0
+
+
+def _sik(donguler: List[List[V3]], yogunluk: int) -> Tuple[List[List[V3]], List[List[bool]]]:
+    """Uzun kirişleri (doğru kenarlar tek parça örneklenir) böler: parametre alanında eğri giden doğru kenarlar
+    için. Dönen ikinci liste eklenen noktaları işaretler."""
+    adim = _olcu(donguler) / (16 * yogunluk)
+    out, ara = [], []
+    for d in donguler:
+        yd, ya = [], []
+        for i, p in enumerate(d):
+            q = d[(i + 1) % len(d)]
+            yd.append(p)
+            ya.append(False)
+            k = int(_boy(_cik(q, p)) / adim)
+            for j in range(1, k + 1):
+                yd.append(_top(p, _kat(_cik(q, p), j / (k + 1))))
+                ya.append(True)
+        out.append(yd)
+        ara.append(ya)
+    return out, ara
 
 
 def _spline_tam_mi(b: Bs3Yuzey, donguler: List[List[V3]], tol: float):
