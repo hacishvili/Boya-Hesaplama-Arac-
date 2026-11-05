@@ -140,7 +140,7 @@ class Toz_(unittest.TestCase):
         self.assertEqual(hesap.Kalem.sozlukten(k.sozluk()).islemler, k.islemler)
         b = hesap.Ayarlar.sozlukten(a.sozluk())
         self.assertEqual([(i.ad, i.birim, i.fiyat, i.kaynak) for i in b.islemler],
-                         [("Kaynak", "m", 40.0, "kaynak"), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "")])
+                         [("Kaynak", "m", 40.0, "kaynak"), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "yuzey")])
         self.assertEqual(len(hesap.Ayarlar.sozlukten({}).islemler), 3)          # eski ayar dosyası: varsayılanlar
         klasor = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, klasor, True)
@@ -172,6 +172,16 @@ class Toz_(unittest.TestCase):
         self.assertEqual((b.kaynak_teli.cap_mm, b.kaynak_teli.kg_fiyat, b.kaynak_teli.makara_kg), (1.0, 90.0, 5.0))
         self.assertTrue(b.islemler[0].tel)
         self.assertIn("Kaynak teli", rapor.html_rapor([k], a))
+
+    def test_yuzey_secimi(self):
+        a = hesap.Ayarlar()
+        a.islemler[2].fiyat = 300.0                                       # polisaj / m²
+        k = hesap.Kalem("x", {"tur": "elle", "alan_m2": 0.5}, adet=2)
+        self.assertNotIn("Polisaj", hesap.kalem_sonucu(k, a).islem_detay)  # seçim yok: bütün parça sayılmaz
+        k.kaynak["yuzey_secimi"] = {"Polisaj": [[0, 20000.0], [3, 5000.0]]}
+        self.assertAlmostEqual(hesap.kalem_sonucu(k, a).islem_detay["Polisaj"][1], 2 * 0.025 * 300)
+        k.islemler = {"Polisaj": 0.1}                                      # elle ezer
+        self.assertAlmostEqual(hesap.kalem_sonucu(k, a).islem_detay["Polisaj"][0], 0.1)
 
     def test_sayi(self):
         self.assertEqual(sayi(1234567.891, 2), "1.234.567,89")

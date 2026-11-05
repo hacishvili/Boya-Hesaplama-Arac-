@@ -17,7 +17,8 @@ import pencere  # noqa: E402
 from PySide6.QtWidgets import QComboBox, QTableWidgetSelectionRange  # noqa: E402
 
 pencere.QComboBox, pencere.QTableWidgetSelectionRange = QComboBox, QTableWidgetSelectionRange
-from hesap import kalem_sonucu  # noqa: E402
+from hesap import kaynak_alani, kalem_sonucu  # noqa: E402
+from PySide6.QtCore import QPointF, Qt  # noqa: E402
 
 
 class Arayuz(unittest.TestCase):
@@ -458,6 +459,53 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(len(p.dikisler()), 1)
         p.gorunum.resize(600, 400)
         p.gorunum.grab()                                                 # çizim hatasız
+        w.degisti = False
+        w.close()
+
+    def test_polisaj_yuzeyleri(self):
+        import test_acis
+        import test_profil
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_3dsolid().sat = test_profil.delikli_plaka([])
+        tasi = (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 50.0, 30.0, 5.0, 1.0, "no_rotate", "no_reflect", "no_shear")
+        m.add_3dsolid().sat = test_acis.silindir(10.0, 0.0, 95.0, donusum=tasi).satirlar()
+        yol = os.path.join(self.klasor, "polisaj.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        sac = d.kalemler()[0]
+        ag = sac.geo
+        self.assertEqual(len(ag.yuz_donguleri), len(ag.yuz_alanlari))
+        self.assertAlmostEqual(sum(ag.yuz_alanlari), kaynak_alani(sac.kaynak), delta=0.5)
+        p = pencere.YuzeyPenceresi(ag, [])
+        p.gorunum.resize(600, 400)
+        p.gorunum.pitch = math.pi / 2                                  # tepeden bakış: üst yüz en yakın
+        p.gorunum.grab()
+        ust = max(range(len(ag.yuz_alanlari)), key=lambda i: (ag.yuz_turleri[i] == "duzlem",
+                                                              max(q[2] for dd in ag.yuz_donguleri[i] for q in dd),
+                                                              ag.yuz_alanlari[i]))
+        i = p.gorunum._en_yakin(QPointF(300, 200))
+        self.assertEqual(i, ust)
+        p.gorunum.tikla(i)
+        self.assertEqual(p.secim(), [[i, round(ag.yuz_alanlari[i], 3)]])
+        self.assertEqual(p.liste.item(i).checkState(), Qt.Checked)
+        p.liste.item(i).setCheckState(Qt.Unchecked)                    # listeden bırak
+        self.assertEqual(p.secim(), [])
+        p.liste.item(i).setCheckState(Qt.Checked)
+        self.assertIn("1</b> yüzey", p.ozet.text())
+        sac.kaynak["yuzey_secimi"] = {"Polisaj": p.secim()}
+        w.ayar.islemler[2].fiyat = 100.0
+        s = kalem_sonucu(sac, w.ayar)
+        self.assertAlmostEqual(s.islem_detay["Polisaj"][0], ag.yuz_alanlari[i] / 1e6)
+        d.birlestir.setChecked(True)                                   # birleşik: yüzler ve seçim taşınır
+        d.tablo.cellWidget(0, 5).setValue(2)
+        d.ogeler[0][2]["yuzey_secimi"] = {"Polisaj": p.secim()}
+        tek = d.kalemler()[0]
+        self.assertGreater(len(tek.geo.yuz_donguleri), len(ag.yuz_donguleri))
+        self.assertAlmostEqual(kalem_sonucu(tek, w.ayar).islem_detay["Polisaj"][0], 2 * ag.yuz_alanlari[i] / 1e6,
+                               places=6)
         w.degisti = False
         w.close()
 

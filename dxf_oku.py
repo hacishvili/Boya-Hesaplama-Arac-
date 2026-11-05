@@ -518,5 +518,9 @@ def acis_govdeleri(e, ad: str, k: float, katman: str = "") -> List[Govde3D]:
             d.olcekle(k)
         gv = Govde3D(isim, e.dxftype(), katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler)
         gv.yuzler = [] if hata else [y.olcekle(k) for y in g.yuz_bilgileri]
+        if ag is not None and gv.yuzler:
+            ag.yuz_donguleri = [y.donguler for y in gv.yuzler]
+            ag.yuz_alanlari = [y.alan for y in gv.yuzler]
+            ag.yuz_turleri = [("silindir" if y.tur == "koni" and not y.egim else y.tur) for y in gv.yuzler]
         out.append(gv)
     return out

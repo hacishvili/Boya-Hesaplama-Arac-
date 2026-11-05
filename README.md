@@ -99,7 +99,10 @@ aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sa
 Kaynak teli (Ayarlar): çap, kg fiyatı ve makara ağırlığı girilir. Dikiş boyu kadar tel harcandığı kabul edilir:
 tel (kg) = π·(çap/2)²·boy·metal yoğunluğu; 0,8 mm çelik telde 1 m kaynak ≈ 3,95 g, 110 TL/kg ile ≈ 0,43 TL.
 "Tel" işaretli işlemin metre fiyatına bu tutar eklenir (birim fiyat işçilik olarak kalır); alt toplamda ve
-raporda harcanan tel (kg, makara) gösterilir. Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
+raporda harcanan tel (kg, makara) gösterilir.
+Polisaj alanı 3D çizimden seçilir ("Seç…"): parça yüz yüz gösterilir, tıklanan yüz (ya da sağdaki listede
+işaretlenen) seçilir ve seçili yüzlerin alanı m² olarak polisaj miktarına yazılır; seçim yapılmadıkça parçanın
+tümü sayılmaz. Ayarlarda "Miktar nereden: seçili yüzeyler" yapılan her işlem (ör. kumlama) aynı pencereyi kullanır. Çoklu seçimde miktar hepsine yazılır. `tutar = toz + proses + Σ miktar × birim
 fiyat × adet`; tabloda ve raporlarda adet fiyatı ve işlem dökümü yer alır.
 
 **Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,

@@ -510,6 +510,7 @@ class IceAktar(QDialog):
         """Seçili 3D gövdeler tek kalem: adet başına alan = Σ (gövde alanı × gövde adedi); adet 1."""
         toplam, kapali, geolar, hacim, delikler = 0.0, True, [], 0.0, []
         kenarlar, carpan, dikis, oneri = [], [], [], []
+        yd, ya, yt, ysec = [], [], [], {}
         for r in satirlar:
             _, geo, kaynak, _, _ = self.ogeler[r]
             n = self.tablo.cellWidget(r, 5).value()
@@ -518,6 +519,12 @@ class IceAktar(QDialog):
                 oneri += [i + len(kenarlar) for i in geo.oneri]
                 kenarlar += geo.kenarlar
                 carpan += [n] * len(geo.kenarlar)
+            if isinstance(geo, Ag) and geo.yuz_donguleri:
+                for ad, sec in (kaynak.get("yuzey_secimi") or {}).items():
+                    ysec.setdefault(ad, []).extend([x[0] + len(yd), x[1] * n] for x in sec)
+                yd += geo.yuz_donguleri
+                ya += [a * n for a in geo.yuz_alanlari]
+                yt += geo.yuz_turleri
             delikler += list(kaynak.get("delikler", [])) * self.tablo.cellWidget(r, 5).value()
             toplam += kaynak_alani(kaynak) * self.tablo.cellWidget(r, 5).value()
             h = kaynak_hacmi(kaynak)
@@ -533,11 +540,14 @@ class IceAktar(QDialog):
             kaynak["delikler"] = delikler
         if kenarlar:
             kaynak["kaynak_dikisleri"] = dikis
+        if ysec:
+            kaynak["yuzey_secimi"] = ysec
         k = Kalem(self.dosya_adi, kaynak, toz=self.toz, dosya=self.yol)
         # ACIS katılarının önizlemesi kenar döngüleridir (tel): dolu çizilirse delik ve havşa döngüleri kapanır
         k.geo = Ag([y for g in geolar for y in g.yuzler], self.dosya_adi, tel=any(g.tel for g in geolar),
                    vurgu=[d for g in geolar for d in g.vurgu], kenarlar=kenarlar, kenar_carpan=carpan,
-                   oneri=oneri, yardimci=[d for g in geolar for d in g.yardimci]) if geolar else None
+                   oneri=oneri, yardimci=[d for g in geolar for d in g.yardimci], yuz_donguleri=yd,
+                   yuz_alanlari=ya, yuz_turleri=yt) if geolar else None
         return k
 
     def kalemler(self) -> List[Kalem]:
@@ -918,6 +928,169 @@ class KaynakPenceresi(QDialog):
         self.gorunum.secim.clear()
         self.gorunum.update()
         self._ozet()
+
+
+YUZ_ADLARI = {"duzlem": "Düzlem", "silindir": "Silindir", "koni": "Koni", "kure": "Küre", "torus": "Simit",
+              "spline": "Serbest yüzey", "eliptik": "Eliptik silindir"}
+
+
+def _zarf2(pts: List[QPointF]) -> List[QPointF]:
+    """Ekrandaki noktaların dışbükey zarfı (eğri yüzün izdüşümü için)."""
+    p = sorted({(q.x(), q.y()) for q in pts})
+    if len(p) < 3:
+        return [QPointF(*q) for q in p]
+
+    def cap(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    alt, ust = [], []
+    for q in p:
+        while len(alt) >= 2 and cap(alt[-2], alt[-1], q) <= 0:
+            alt.pop()
+        alt.append(q)
+    for q in reversed(p):
+        while len(ust) >= 2 and cap(ust[-2], ust[-1], q) <= 0:
+            ust.pop()
+        ust.append(q)
+    return [QPointF(*q) for q in alt[:-1] + ust[:-1]]
+
+
+class YuzeyGorunum(KaynakGorunum):
+    """3D gövdenin yüzleri: tıklanan yüz seçilir / bırakılır (polisaj vb. alanı). Düzlem yüz döngüleriyle
+    (delikler boş), eğri yüz izdüşümünün zarfıyla tutulur; üst üste binende bakana en yakın olan seçilir."""
+    SECILI = QColor(230, 120, 0, 130)
+
+    def __init__(self, ag: Ag, secim: set, parent=None):
+        super().__init__(ag, {}, parent)
+        self.secili = secim
+        self._yollar: List[tuple] = []   # (QPainterPath, derinlik)
+
+    def _yol(self, i: int, f) -> tuple:
+        donguler = self.ag.yuz_donguleri[i]
+        izd = [[f(q) for q in d] for d in donguler]
+        derin = [z for d in izd for _, z in d]
+        yol = QPainterPath()
+        yol.setFillRule(Qt.OddEvenFill)
+        tur = self.ag.yuz_turleri[i] if i < len(self.ag.yuz_turleri) else ""
+        if tur == "duzlem":
+            for d in izd:
+                yol.addPolygon(QPolygonF([q for q, _ in d]))
+                yol.closeSubpath()
+        else:
+            yol.addPolygon(QPolygonF(_zarf2([q for d in izd for q, _ in d])))
+            yol.closeSubpath()
+        return yol, (sum(derin) / len(derin) if derin else 0.0)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), self.palette().base())
+        f = self._izdus()
+        self._yollar = [self._yol(i, f) for i in range(len(self.ag.yuz_donguleri))]
+        sira = sorted(range(len(self._yollar)), key=lambda i: -self._yollar[i][1])  # uzaktan yakına
+        p.setPen(Qt.NoPen)
+        for i in sira:
+            if i in self.secili or i == self.ustteki:
+                p.setBrush(self.SECILI if i in self.secili else QColor(60, 140, 220, 70))
+                p.drawPath(self._yollar[i][0])
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(180, 190, 200), 0.8))
+        for y in self.ag.yardimci:
+            p.drawPolyline(QPolygonF([f(q)[0] for q in y]))
+        p.setPen(QPen(QColor(30, 80, 140), 1.0))
+        for k in self.ag.kenarlar or [d for y in self.ag.yuz_donguleri for d in y]:
+            p.drawPolyline(QPolygonF([f(q)[0] for q in k]))
+        p.setPen(self.palette().text().color())
+        p.drawText(QRectF(8, self.height() - 22, self.width() - 16, 18), Qt.AlignLeft,
+                   "Tıkla: yüzeyi seç / bırak · sürükle: döndür · tekerlek: yakınlaştır")
+
+    def _en_yakin(self, pt: QPointF, esik: float = 0.0) -> int:
+        if not self._yollar:
+            self._yollar = [self._yol(i, self._izdus()) for i in range(len(self.ag.yuz_donguleri))]
+        adaylar = [(z, i) for i, (yol, z) in enumerate(self._yollar) if yol.contains(pt)]
+        return min(adaylar)[1] if adaylar else -1
+
+    def tikla(self, i: int):
+        if i < 0:
+            return
+        self.secili ^= {i}
+        self.update()
+        self.degisti.emit()
+
+    def resizeEvent(self, e):
+        self._yollar = []
+        super().resizeEvent(e)
+
+
+class YuzeyPenceresi(QDialog):
+    """3D gövdeden yüzey seçimi (polisaj vb.): seçilen yüzlerin alanı toplanır (m²)."""
+
+    def __init__(self, ag: Ag, secim: List[list], islem: str = "Polisaj", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{islem} yüzeyleri")
+        self.resize(1000, 640)
+        self.ag = ag
+        n = len(ag.yuz_donguleri)
+        v = QVBoxLayout(self)
+        ust = QHBoxLayout()
+        v.addLayout(ust, 1)
+        self.gorunum = YuzeyGorunum(ag, {int(x[0]) for x in secim if 0 <= int(x[0]) < n})
+        ust.addWidget(self.gorunum, 1)
+        self.liste = QListWidget()
+        self.liste.setMaximumWidth(260)
+        for i in range(n):
+            tur = ag.yuz_turleri[i] if i < len(ag.yuz_turleri) else ""
+            it = QListWidgetItem(f"{i + 1}. {YUZ_ADLARI.get(tur, tur or 'Yüz')} – {sayi(ag.yuz_alanlari[i], 0)} mm²")
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            self.liste.addItem(it)
+        self.liste.itemChanged.connect(self._listeden)
+        self.liste.currentRowChanged.connect(self._vurgula)
+        ust.addWidget(self.liste)
+        self.ozet = QLabel()
+        v.addWidget(self.ozet)
+        h = QHBoxLayout()
+        hepsi = QPushButton("Hepsini seç")
+        hepsi.clicked.connect(lambda: self._ata(set(range(n))))
+        temizle = QPushButton("Seçimi temizle")
+        temizle.clicked.connect(lambda: self._ata(set()))
+        h.addWidget(hepsi)
+        h.addWidget(temizle)
+        h.addStretch(1)
+        b = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        b.button(QDialogButtonBox.Ok).setText("Tamam")
+        b.button(QDialogButtonBox.Cancel).setText("Vazgeç")
+        b.accepted.connect(self.accept)
+        b.rejected.connect(self.reject)
+        h.addWidget(b)
+        v.addLayout(h)
+        self.gorunum.degisti.connect(self._ozet)
+        self._ozet()
+
+    def secim(self) -> List[list]:
+        return [[i, round(self.ag.yuz_alanlari[i], 3)] for i in sorted(self.gorunum.secili)]
+
+    def _ata(self, s: set):
+        self.gorunum.secili.clear()
+        self.gorunum.secili.update(s)
+        self.gorunum.update()
+        self._ozet()
+
+    def _listeden(self, it: QListWidgetItem):
+        i = self.liste.row(it)
+        if (it.checkState() == Qt.Checked) != (i in self.gorunum.secili):
+            self.gorunum.tikla(i)
+
+    def _vurgula(self, i: int):
+        self.gorunum.ustteki = i
+        self.gorunum.update()
+
+    def _ozet(self):
+        self.liste.blockSignals(True)
+        for i in range(self.liste.count()):
+            self.liste.item(i).setCheckState(Qt.Checked if i in self.gorunum.secili else Qt.Unchecked)
+        self.liste.blockSignals(False)
+        s = self.secim()
+        self.ozet.setText(f"<b>{len(s)}</b> yüzey seçili · toplam <b>{sayi(sum(x[1] for x in s) / 1e6, 4)} m²</b>"
+                          f" (parçanın tümü {sayi(sum(self.ag.yuz_alanlari) / 1e6, 4)} m²)")
 
 
 class KalipPenceresi(QDialog):
@@ -1809,6 +1982,11 @@ class AnaPencere(QMainWindow):
                 sec.setToolTip("3D çizimde kaynak yapılacak kenarları seçin (iki taraflı da olabilir)")
                 sec.clicked.connect(lambda _=False: self._kaynak_sec(r))
                 h.addWidget(sec)
+            if i.kaynak == "yuzey" and isinstance(geo, Ag) and geo.yuz_donguleri:
+                sec = QPushButton("Seç…")
+                sec.setToolTip(f"3D çizimde {i.ad.lower()} yapılacak yüzeyleri seçin; alanları toplanır")
+                sec.clicked.connect(lambda _=False, ad=i.ad: self._yuzey_sec(r, ad))
+                h.addWidget(sec)
             if i.kaynak and oto is not None:
                 cb = QCheckBox(f"elle (çizimden {sayi(oto, basamak)})")
                 cb.setChecked(elle)
@@ -1838,6 +2016,16 @@ class AnaPencere(QMainWindow):
         for i in self.ayar.islemler:  # elle girilmiş kaynak metresi çizimden gelene bırakılır
             if i.kaynak == "kaynak":
                 k.islemler.pop(i.ad, None)
+        self._sonrasi(r)
+        self.ayrinti_alan.setWidget(self._ayrinti(r))
+
+    def _yuzey_sec(self, r: int, ad: str):
+        k = self.kalemler[r]
+        d = YuzeyPenceresi(k.geo, (k.kaynak.get("yuzey_secimi") or {}).get(ad, []), ad, self)
+        if d.exec() != QDialog.Accepted:
+            return
+        k.kaynak["yuzey_secimi"] = {**(k.kaynak.get("yuzey_secimi") or {}), ad: d.secim()}
+        k.islemler.pop(ad, None)  # elle girilmiş miktar seçime bırakılır
         self._sonrasi(r)
         self.ayrinti_alan.setWidget(self._ayrinti(r))
 

@@ -35,7 +35,8 @@ class Toz:
 
 
 ISLEM_BIRIMLERI = ("adet", "m", "m²", "kg", "dk", "sabit")
-ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı", "kaynak": "çizimden: kaynak dikişleri (m)"}
+ISLEM_KAYNAKLARI = {"": "elle", "havsa": "çizimden: havşa sayısı", "kaynak": "çizimden: kaynak dikişleri (m)",
+                    "yuzey": "çizimden: seçili yüzeyler (m²)"}
 
 
 @dataclass
@@ -66,7 +67,7 @@ class KaynakTeli:
 
 
 def varsayilan_islemler() -> List[Islem]:
-    return [Islem("Kaynak", "m", kaynak="kaynak", tel=True), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²")]
+    return [Islem("Kaynak", "m", kaynak="kaynak", tel=True), Islem("Havşa", "adet", kaynak="havsa"), Islem("Polisaj", "m²", kaynak="yuzey")]
 
 
 def kaynak_boyu_mm(k: Dict[str, Any]) -> Optional[float]:
@@ -75,6 +76,13 @@ def kaynak_boyu_mm(k: Dict[str, Any]) -> Optional[float]:
     if "kaynak_dikisleri" not in k:
         return None
     return sum(float(d[2]) * int(d[1]) for d in k["kaynak_dikisleri"])
+
+
+def secili_yuzey_mm2(k: Dict[str, Any], islem: str) -> Optional[float]:
+    """İşlem için 3D çizimde seçilen yüzeylerin toplam alanı (mm²); seçim yoksa None.
+    yuzey_secimi: {işlem adı: [[yüz sırası, alan mm²], ...]}"""
+    s = (k.get("yuzey_secimi") or {}).get(islem)
+    return None if s is None else sum(float(x[1]) for x in s)
 
 
 @dataclass
@@ -304,6 +312,9 @@ def otomatik_miktar(k: "Kalem", islem: Islem) -> Optional[float]:
     if islem.kaynak == "kaynak":
         b = kaynak_boyu_mm(k.kaynak)
         return None if b is None else b / 1000.0
+    if islem.kaynak == "yuzey":
+        b = secili_yuzey_mm2(k.kaynak, islem.ad)
+        return None if b is None else b / 1e6
     return None
 
 
