@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+import zipfile
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSize, Qt, Signal
@@ -906,7 +907,7 @@ class AyarPenceresi(QDialog):
         h.addWidget(self.oda, 1)
         h.addWidget(gozat)
         f.addRow("ODA File Converter", h)
-        self.guncelleme = QCheckBox("Açılışta yeni sürümü denetle (GitHub)")
+        self.guncelleme = QCheckBox("Yeni sürümü GitHub'dan sessizce indir, program kapanınca kur")
         self.guncelleme.setChecked(ayar.guncelleme)
         f.addRow("Güncelleme", self.guncelleme)
         v.addWidget(QLabel("Tozlar (sarfiyat atölyeden; yoğunluk ve kalınlık teknik föyden, yalnız teorik yöntemde):"))
@@ -1003,6 +1004,7 @@ SUTUNLAR = ["Parça", "Açıklama", "Adet", "Alan / adet (m²)", "Toz", "Kalınl
 
 class AnaPencere(QMainWindow):
     _surum_geldi = Signal(object, bool)  # (guncelleme.Surum ya da None, sessiz)
+    _guncelleme_hazir = Signal(object)    # (sürüm, zip yolu) ya da None: sessiz güncelleme indirildi
 
     def __init__(self):
         super().__init__()
@@ -1052,6 +1054,8 @@ class AnaPencere(QMainWindow):
         self._ayrinti_bos()
         self._yenile()
         self._surum_geldi.connect(self._surum_sonucu)
+        self._guncelleme_hazir.connect(self._sessiz_hazir)
+        self._hazir = None  # (sürüm, zip yolu): kapanışta kurulacak
 
     # -- eylemler
     def _eylemler(self):
@@ -1607,6 +1611,34 @@ class AnaPencere(QMainWindow):
         import guncelleme
         threading.Thread(target=lambda: self._surum_geldi.emit(guncelleme.son_surum(), sessiz), daemon=True).start()
 
+    def sessiz_guncelleme(self):
+        """Açılışta: önceki kurulumun hatasını bildirir; yeni sürümü arka planda indirir (kapanışta kurulur)."""
+        import threading
+        import guncelleme
+        hata = guncelleme.hata_oku()
+        if hata:
+            QMessageBox.warning(self, UYGULAMA, f"Son güncelleme kurulamadı:\n{hata}\n\nProgramı yazılabilir bir "
+                                f"klasöre (ör. Belgeler) taşıyın ya da elle indirin: {guncelleme.SAYFA}")
+        threading.Thread(target=lambda: self._guncelleme_hazir.emit(guncelleme.hazirla(SURUM)), daemon=True).start()
+
+    def _sessiz_hazir(self, sonuc):
+        if sonuc is None:
+            return
+        self._hazir = sonuc
+        self.statusBar().showMessage(f"Yeni sürüm {sonuc[0]} indirildi; program kapanınca kurulacak.")
+
+    def _kapanista_kur(self):
+        import guncelleme
+        if self._hazir is None:
+            return
+        zip_yolu = self._hazir[1]
+        self._hazir = None
+        try:
+            guncelleme.kur(zip_yolu, baslat=False)
+            os.remove(zip_yolu)  # kur zip'i açtı; gerisini betik kopyalar
+        except Exception:  # noqa: BLE001 — kapanışta hiçbir hata programı tutmamalı; sonraki açılışta yeniden denenir
+            pass
+
     def _surum_sonucu(self, s, sessiz: bool):
         import guncelleme
         if s is None:
@@ -1651,12 +1683,13 @@ class AnaPencere(QMainWindow):
                     raise OSError("İndirilen dosyanın SHA-256 özeti tutmuyor; dosya bozuk ya da değiştirilmiş.")
             ilerleme.close()
             guncelleme.kur(zip_yolu)
-        except OSError as h:
+        except (OSError, zipfile.BadZipFile) as h:
             ilerleme.close()
             QMessageBox.warning(self, UYGULAMA, f"Güncelleme yapılamadı:\n{h}\n\nElle indirmek için: "
                                 f"{guncelleme.SAYFA}")
             return
         self.degisti = False
+        self._hazir = None  # betik zaten kuruyor
         QApplication.quit()
 
     def hakkinda(self):
@@ -1684,6 +1717,7 @@ class AnaPencere(QMainWindow):
     def closeEvent(self, e):
         if self._kaydedilsin_mi():
             e.accept()
+            self._kapanista_kur()
         else:
             e.ignore()
 

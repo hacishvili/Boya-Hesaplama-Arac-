@@ -11,9 +11,10 @@ Python gerektirmeyen Windows paketi deponun **Releases** sayfasında:
 https://github.com/hacishvili/Boya-Hesaplama-Arac-/releases/latest. `TozBoyaHesap_<sürüm>.zip` indirilip
 yazılabilir bir klasöre (Belgeler, Masaüstü; Program Files değil) açılır, `TozBoyaHesap.exe` çalıştırılır.
 
-Program açılışta GitHub'da yeni sürüm olup olmadığına bakar (Yardım → Güncellemeleri denetle; Ayarlar'dan
-kapatılabilir). Yeni sürüm varsa sorar, indirir, SHA-256 özetini doğrular, kendini kapatıp yeni dosyaları kendi
-klasörünün üstüne kopyalar ve yeniden açılır. Ayarlar ve projeler etkilenmez.
+Güncelleme sessizdir: program açılışta GitHub'da yeni sürüm varsa sormadan arka planda indirir ve SHA-256
+özetini doğrular (durum çubuğunda yazar). Program kapanınca yeni dosyalar kendi klasörünün üstüne kopyalanır; bir
+sonraki açılış yeni sürümle olur. Kurulum yapılamazsa (klasöre yazılamıyorsa) sonraki açılışta bildirilir. Ayarlar'dan
+kapatılabilir; Yardım → Güncellemeleri denetle hemen sorup kurar. Ayarlar ve projeler etkilenmez.
 
 Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleştirmek yeter; GitHub Actions testleri
 çalıştırır, paketi derler ve `v<sürüm>` olarak Releases'e koyar. Numara artmadıkça yeni yayın çıkmaz.

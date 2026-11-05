@@ -4,7 +4,11 @@
 main'e yeni sürüm girince Actions paketi (TozBoyaHesap_<sürüm>.zip) ve SHA-256 özetini (.zip.sha256) v<sürüm>
 etiketli sürüm olarak yayımlar. Program son sürümü GitHub API'sinden okur; yeniyse zip'i indirir, özeti doğrular,
 geçici klasöre açar ve küçük bir .cmd ile program kapandıktan sonra dosyaları kendi klasörünün üstüne kopyalayıp
-programı yeniden başlatır (çalışan exe'nin üzerine yazılamadığı için)."""
+programı yeniden başlatır (çalışan exe'nin üzerine yazılamadığı için).
+
+Sessiz güncelleme (varsayılan): açılışta yeni sürüm arka planda indirilip doğrulanır (hazirla), program kapanınca
+kurulur (kur, baslat=False); bir sonraki açılış yeni sürümle olur. Kurulum hatası HATA_GUNLUGU dosyasına yazılır,
+program sonraki açılışta bildirir."""
 from __future__ import annotations
 
 import hashlib
@@ -23,6 +27,12 @@ DEPO = "hacishvili/Boya-Hesaplama-Arac-"
 API = f"https://api.github.com/repos/{DEPO}/releases/latest"
 SAYFA = f"https://github.com/{DEPO}/releases/latest"
 EXE = "TozBoyaHesap.exe"
+HATA_GUNLUGU = os.path.join(tempfile.gettempdir(), "TozBoyaGuncelleme_hata.txt")
+
+
+def indirme_klasoru() -> str:
+    kok = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    return os.path.join(kok, "TozBoyaHesap", "guncelleme")
 
 
 @dataclass
@@ -96,8 +106,49 @@ def ozet_dogru(dosya: str, ozet_metni: str) -> bool:
     return h.hexdigest().lower() == m.group(1).lower()
 
 
-def kurulum_betigi(yeni: str, hedef: str, gecici: str, pid: int) -> str:
-    """Program kapanınca yeni dosyaları hedefe kopyalayıp programı başlatan .cmd içeriği."""
+def hazirla(simdiki: str, klasor: Optional[str] = None) -> Optional[Tuple[str, str]]:
+    """Sessiz güncelleme: yeni sürüm varsa zip'i indirir ve özetini doğrular; (sürüm, zip yolu) ya da None.
+    Daha önce indirilip doğrulanmış zip yeniden indirilmez; eski sürümlerin zip'leri silinir. Ağ hatasında None."""
+    s = son_surum()
+    if s is None or not yeni_mi(s.surum, simdiki):
+        return None
+    klasor = klasor or indirme_klasoru()
+    try:
+        os.makedirs(klasor, exist_ok=True)
+        ad = f"TozBoyaHesap_{s.surum}.zip"
+        zip_yolu = os.path.join(klasor, ad)
+        for eski in os.listdir(klasor):
+            if eski.startswith("TozBoyaHesap_") and not eski.startswith(ad):
+                os.remove(os.path.join(klasor, eski))
+        ozet_yolu = zip_yolu + ".sha256"
+        indir(s.sha_url, ozet_yolu)
+        with open(ozet_yolu, encoding="utf-8") as f:
+            ozet = f.read()
+        if not (os.path.exists(zip_yolu) and ozet_dogru(zip_yolu, ozet)):
+            indir(s.zip_url, zip_yolu + ".part")
+            if not ozet_dogru(zip_yolu + ".part", ozet):
+                os.remove(zip_yolu + ".part")
+                return None
+            os.replace(zip_yolu + ".part", zip_yolu)
+        return s.surum, zip_yolu
+    except OSError:
+        return None
+
+
+def hata_oku() -> str:
+    """Önceki sessiz kurulumun hatası (varsa); okununca silinir."""
+    try:
+        with open(HATA_GUNLUGU, encoding="utf-8", errors="replace") as f:
+            metin = f.read().strip()
+        os.remove(HATA_GUNLUGU)
+        return metin
+    except OSError:
+        return ""
+
+
+def kurulum_betigi(yeni: str, hedef: str, gecici: str, pid: int, baslat: bool = True) -> str:
+    """Program kapanınca yeni dosyaları hedefe kopyalayan (baslat: sonra programı açan) .cmd içeriği. Betik pencere
+    açmadan çalışır: hata ekrana değil HATA_GUNLUGU'na yazılır."""
     return "\r\n".join([
         "@echo off",
         "chcp 65001 >nul",
@@ -105,19 +156,20 @@ def kurulum_betigi(yeni: str, hedef: str, gecici: str, pid: int) -> str:
         f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto bekle)',
         f'robocopy "{yeni}" "{hedef}" /E /NFL /NDL /NJH /NJS /NP /R:5 /W:1 >nul',
         "if %ERRORLEVEL% GEQ 8 (",
-        "  echo Guncelleme kopyalanamadi: program klasorune yazilamiyor olabilir.",
-        "  pause",
-        "  exit /b 1",
+        f'  echo Guncelleme kopyalanamadi: "{hedef}" klasorune yazilamiyor olabilir. > "{HATA_GUNLUGU}"',
+        f'  rmdir /s /q "{gecici}"',
+        '  (goto) 2>nul & del "%~f0"',
         ")",
-        f'start "" "{os.path.join(hedef, EXE)}"',
+        *([f'start "" "{os.path.join(hedef, EXE)}"'] if baslat else []),
         f'rmdir /s /q "{gecici}"',
         '(goto) 2>nul & del "%~f0"',
         "",
     ])
 
 
-def kur(zip_yolu: str, pid: Optional[int] = None) -> str:
-    """Zip'i açar, kurulum betiğini yazar ve başlatır; betiğin yolunu döner. Çağıran program hemen kapanmalı."""
+def kur(zip_yolu: str, pid: Optional[int] = None, baslat: bool = True) -> str:
+    """Zip'i açar, kurulum betiğini yazar ve başlatır; betiğin yolunu döner. Çağıran program hemen kapanmalı.
+    baslat=False: kurulumdan sonra program açılmaz (sessiz güncelleme, kapanışta)."""
     if not getattr(sys, "frozen", False) or os.name != "nt":
         raise OSError("Kendini güncelleme yalnız Windows paketinde çalışır; kaynaktan çalışıyorsanız 'git pull'.")
     hedef = os.path.dirname(os.path.abspath(sys.executable))
@@ -133,6 +185,6 @@ def kur(zip_yolu: str, pid: Optional[int] = None) -> str:
         raise OSError("İndirilen pakette program bulunamadı.")
     betik = os.path.join(tempfile.gettempdir(), f"TozBoyaGuncelle_{pid or os.getpid()}.cmd")  # gecici silinecek
     with open(betik, "w", encoding="utf-8") as f:
-        f.write(kurulum_betigi(yeni, hedef, gecici, pid or os.getpid()))
+        f.write(kurulum_betigi(yeni, hedef, gecici, pid or os.getpid(), baslat))
     subprocess.Popen(["cmd", "/c", betik], creationflags=0x08000000, close_fds=True)  # pencere açmadan
     return betik
