@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QComboBox, QTableWidgetSelectionRange  # noqa: E40
 
 pencere.QComboBox, pencere.QTableWidgetSelectionRange = QComboBox, QTableWidgetSelectionRange
 from hesap import kaynak_alani, kalem_sonucu  # noqa: E402
-from PySide6.QtCore import QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
 
 
 class Arayuz(unittest.TestCase):
@@ -472,6 +472,23 @@ class Arayuz(unittest.TestCase):
         self.assertAlmostEqual(g._izdus()(q)[0].x(), sonra.x() + 40, places=6)
         g.sigdir()
         self.assertEqual((g.zoom, g.kay), (1.0, QPointF(0, 0)))
+        p._temizle()                                                     # pencereyle seçim
+        g.grab()
+        tum = QRectF(0, 0, g.width(), g.height())
+        g.pencere_sec(tum)                                               # hepsi içinde
+        self.assertEqual(len(g.secim), len(k.geo.kenarlar))
+        g.secim[i] = 2
+        g.pencere_sec(tum)                                               # seçili olan değişmez
+        self.assertEqual(g.secim[i], 2)
+        g.pencere_sec(tum, cikar=True)                                   # Shift: çıkar
+        self.assertEqual(g.secim, {})
+        a = g._ekran[i]
+        orta = a[len(a) // 2]
+        kucuk = QRectF(orta.x() - 2, orta.y() - 2, 4, 4)
+        g.pencere_sec(kucuk)                                             # soldan sağa: tamamı içinde değil
+        self.assertNotIn(i, g.secim)
+        g.pencere_sec(kucuk, capraz=True)                                # sağdan sola: değen kenar
+        self.assertIn(i, g.secim)
         o = pencere.Onizleme()                                           # alt önizleme seçimleri gösterir
         o.resize(400, 300)
         o.goster(k.geo, "", {"kaynak_dikisleri": [[i, 2, 62.8]], "yuzey_secimi": {"Polisaj": [[0, 100.0]]}})
@@ -513,6 +530,15 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(p.secim(), [])
         p.liste.item(i).setCheckState(Qt.Checked)
         self.assertIn("1</b> yüzey", p.ozet.text())
+        tum = QRectF(0, 0, p.gorunum.width(), p.gorunum.height())
+        p.gorunum.pencere_sec(tum)                                     # pencere: bütün yüzler
+        self.assertEqual(len(p.secim()), len(ag.yuz_alanlari))
+        p.gorunum.pencere_sec(tum, cikar=True)
+        p.gorunum.pencere_sec(QRectF(299, 199, 2, 2), capraz=True)     # sağdan sola: değen (üst yüz)
+        self.assertIn(i, p.gorunum.secili)
+        p.gorunum.secili.clear()
+        p.gorunum.secili.add(i)
+        p._ozet()
         sac.kaynak["yuzey_secimi"] = {"Polisaj": p.secim()}
         w.ayar.islemler[2].fiyat = 100.0
         s = kalem_sonucu(sac, w.ayar)

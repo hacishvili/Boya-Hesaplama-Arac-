@@ -95,7 +95,10 @@ birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına mikta
 ("elle" işaretlenince değiştirilir). Kaynak metresi 3D çizimden seçilir ("Seç…"): parçanın kenarları döndürülüp
 yakınlaştırılabilen pencerede gösterilir, tıklanan kenar tek taraflı → iki taraflı (×2) → kaldır olarak değişir.
 Pencerede fare CAD programlarındaki gibi: tekerlek imlecin altındaki noktaya yakınlaştırır, sol tuşla sürüklemek
-döndürür, orta (ya da sağ) tuşla sürüklemek kaydırır, orta tuşa çift tık ya da F tuşu parçayı sığdırır.
+seçim penceresi çizer (soldan sağa: tamamı içinde kalanlar, sağdan sola: değenler; Shift basılıyken seçimden
+çıkarır), sağ tuşla (ya da Shift + orta) sürüklemek döndürür, orta tuşla sürüklemek kaydırır, orta tuşa çift tık ya da
+F tuşu parçayı sığdırır. Profil ve borularda iç yüzler (et kalınlığı) gösterilmez, yalnız dış görünür; alan
+hesabında iç yüzey ayarlandığı gibi sayılır.
 Seçilen dikişler (kırmızı: tek taraflı, mor: iki taraflı) ve yüzeyler (yeşil) kalemin alttaki önizlemesinde de
 gösterilir.
 Birbirine değen katılarda (ör. sacın üstüne dikilmiş boru) değme kenarları kaynak yeri olarak önerilir ve içe

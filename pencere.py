@@ -811,6 +811,25 @@ class KalipFormu(QWidget):
         return {k: (w.currentText() if isinstance(w, QComboBox) else w.value()) for k, w in self.alanlar.items()}
 
 
+def _kesisir(a: QPointF, b: QPointF, r: QRectF) -> bool:
+    """[a, b] doğru parçası dikdörtgeni kesiyor mu (Liang–Barsky)."""
+    t0, t1 = 0.0, 1.0
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    for pp, qq in ((-dx, a.x() - r.left()), (dx, r.right() - a.x()), (-dy, a.y() - r.top()), (dy, r.bottom() - a.y())):
+        if pp == 0:
+            if qq < 0:
+                return False
+            continue
+        t = qq / pp
+        if pp < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return False
+    return True
+
+
 class KaynakGorunum(QWidget):
     """3D gövdenin kenarları; fareyle döndürülür (sürükle), yakınlaştırılır (tekerlek). Tıklanan kenarın durumu
     döner: seçilmemiş → tek taraflı → iki taraflı → seçilmemiş. Önerilen kenarlar yeşil kesikli."""
@@ -825,7 +844,9 @@ class KaynakGorunum(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.yaw, self.pitch, self.zoom = math.radians(-35), math.radians(30), 1.0
         self.kay = QPointF(0, 0)          # kaydırma (ekranda, piksel)
-        self._kaydir = None               # orta / sağ tuşla sürüklerken son konum
+        self._kaydir = None               # orta tuşla sürüklerken son konum
+        self._dondur = None               # sağ tuşla (ya da Shift + orta) sürüklerken son konum
+        self._pencere: Optional[QRectF] = None   # sol tuşla çizilen seçim penceresi (başlangıç → imleç)
         pts = [q for k in ag.kenarlar for q in k] or [q for y in ag.yuzler for q in y] or [(0, 0, 0)]
         self.merkez = tuple((max(q[i] for q in pts) + min(q[i] for q in pts)) / 2 for i in range(3))
         self.boy = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3)) or 1.0
@@ -872,10 +893,12 @@ class KaynakGorunum(QWidget):
                 pen.setWidthF(pen.widthF() + 2)
                 p.setPen(pen)
             p.drawPolyline(QPolygonF(k))
+        self._pencere_ciz(p)
         p.setPen(self.palette().text().color())
-        p.drawText(QRectF(8, self.height() - 38, self.width() - 16, 34), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
-                   "Tıkla: tek taraf → iki taraf → kaldır · sol sürükle: döndür · tekerlek: imleçte yakınlaştır · "
-                   "orta / sağ sürükle: kaydır · orta çift tık ya da F: sığdır")
+        p.drawText(QRectF(8, self.height() - 52, self.width() - 16, 48), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
+                   "Tıkla: tek taraf → iki taraf → kaldır · sol sürükle: pencereyle seç (sağdan sola: değenler; "
+                   "Shift: çıkar) · sağ sürükle: döndür · orta sürükle: kaydır · tekerlek: imleçte yakınlaştır · "
+                   "orta çift tık ya da F: sığdır")
 
     def _en_yakin(self, pt: QPointF, esik: float = 7.0) -> int:
         en, sec = esik, -1
@@ -890,7 +913,11 @@ class KaynakGorunum(QWidget):
         return sec
 
     def mousePressEvent(self, e):
-        if e.button() in (Qt.MiddleButton, Qt.RightButton):  # CAD gibi: orta (ya da sağ) tuşla kaydır
+        if e.button() == Qt.RightButton or (e.button() == Qt.MiddleButton and e.modifiers() & Qt.ShiftModifier):
+            self._dondur = e.position()  # sağ tuş ya da Shift + orta: döndür
+            self.setCursor(Qt.SizeAllCursor)
+            return
+        if e.button() == Qt.MiddleButton:  # CAD gibi: orta tuşla kaydır
             self._kaydir = e.position()
             self.setCursor(Qt.ClosedHandCursor)
             return
@@ -922,14 +949,19 @@ class KaynakGorunum(QWidget):
             self._kaydir = e.position()
             self._gorunum_degisti()
             return
+        if self._dondur is not None:
+            d = e.position() - self._dondur
+            self.yaw += d.x() * 0.01
+            self.pitch = max(-math.pi / 2, min(math.pi / 2, self.pitch + d.y() * 0.01))
+            self._dondur = e.position()
+            self._gorunum_degisti()
+            return
         if self._bas is not None and e.buttons() & Qt.LeftButton:
             d = e.position() - self._bas
-            if abs(d.x()) + abs(d.y()) > 3:
+            if self._suruklendi or abs(d.x()) + abs(d.y()) > 4:  # seçim penceresi
                 self._suruklendi = True
-                self.yaw += d.x() * 0.01
-                self.pitch = max(-math.pi / 2, min(math.pi / 2, self.pitch + d.y() * 0.01))
-                self._bas = e.position()
-                self._gorunum_degisti()
+                self._pencere = QRectF(self._bas, e.position())
+                self.update()
             return
         i = self._en_yakin(e.position())
         if i != self.ustteki:
@@ -937,14 +969,52 @@ class KaynakGorunum(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, e):
-        if self._kaydir is not None:
+        if self._kaydir is not None or self._dondur is not None:
             if e.button() in (Qt.MiddleButton, Qt.RightButton):
-                self._kaydir = None
+                self._kaydir = self._dondur = None
                 self.unsetCursor()
             return
-        if self._bas is not None and not self._suruklendi and e.button() == Qt.LeftButton:
-            self.tikla(self._en_yakin(e.position()))
+        if self._bas is not None and e.button() == Qt.LeftButton:
+            if self._suruklendi and self._pencere is not None:
+                # AutoCAD gibi: soldan sağa pencere (tamamı içinde), sağdan sola kesişen; Shift: seçimden çıkar
+                capraz = self._pencere.width() < 0
+                self.pencere_sec(self._pencere.normalized(), capraz, bool(e.modifiers() & Qt.ShiftModifier))
+            elif not self._suruklendi:
+                self.tikla(self._en_yakin(e.position()))
         self._bas = None
+        self._pencere = None
+        self.update()
+
+    def _pencere_ciz(self, p: QPainter):
+        if self._pencere is None:
+            return
+        capraz = self._pencere.width() < 0
+        renk = QColor(40, 150, 60) if capraz else QColor(30, 90, 200)
+        p.setPen(QPen(renk, 1.0, Qt.DashLine if capraz else Qt.SolidLine))
+        p.setBrush(QColor(renk.red(), renk.green(), renk.blue(), 40))
+        p.drawRect(self._pencere.normalized())
+        p.setBrush(Qt.NoBrush)
+
+    def _kenar_pencerede(self, k: List[QPointF], r: QRectF, capraz: bool) -> bool:
+        if not capraz:
+            return all(r.contains(q) for q in k)
+        if any(r.contains(q) for q in k):
+            return True
+        return any(_kesisir(a, b, r) for a, b in zip(k, k[1:]))
+
+    def pencere_sec(self, r: QRectF, capraz: bool = False, cikar: bool = False):
+        """Penceredeki kenarlar: seçilmemişler tek taraflı olur (seçili olanlar değişmez); cikar: seçimden çıkar."""
+        if not self._ekran:
+            f = self._izdus()
+            self._ekran = [[f(q)[0] for q in k] for k in self.ag.kenarlar]
+        for i, k in enumerate(self._ekran):
+            if self._kenar_pencerede(k, r, capraz):
+                if cikar:
+                    self.secim.pop(i, None)
+                else:
+                    self.secim.setdefault(i, 1)
+        self.update()
+        self.degisti.emit()
 
     def tikla(self, i: int):
         if i < 0:
@@ -1106,10 +1176,12 @@ class YuzeyGorunum(KaynakGorunum):
         p.setPen(QPen(QColor(30, 80, 140), 1.0))
         for k in self.ag.kenarlar or [d for y in self.ag.yuz_donguleri for d in y]:
             p.drawPolyline(QPolygonF([f(q)[0] for q in k]))
+        self._pencere_ciz(p)
         p.setPen(self.palette().text().color())
-        p.drawText(QRectF(8, self.height() - 38, self.width() - 16, 34), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
-                   "Tıkla: yüzeyi seç / bırak · sol sürükle: döndür · tekerlek: imleçte yakınlaştır · "
-                   "orta / sağ sürükle: kaydır · orta çift tık ya da F: sığdır")
+        p.drawText(QRectF(8, self.height() - 52, self.width() - 16, 48), Qt.AlignLeft | Qt.AlignBottom | Qt.TextWordWrap,
+                   "Tıkla: yüzeyi seç / bırak · sol sürükle: pencereyle seç (sağdan sola: değenler; Shift: çıkar) · "
+                   "sağ sürükle: döndür · orta sürükle: kaydır · tekerlek: imleçte yakınlaştır · "
+                   "orta çift tık ya da F: sığdır")
 
     def _en_yakin(self, pt: QPointF, esik: float = 0.0) -> int:
         if not self._yollar:
@@ -1121,6 +1193,22 @@ class YuzeyGorunum(KaynakGorunum):
         if i < 0:
             return
         self.secili ^= {i}
+        self.update()
+        self.degisti.emit()
+
+    def pencere_sec(self, r: QRectF, capraz: bool = False, cikar: bool = False):
+        """Penceredeki yüzler (soldan sağa: tamamı içinde; sağdan sola: değen) seçilir; cikar: seçimden çıkar."""
+        f = self._izdus()
+        if not self._yollar:
+            self._yollar = [self._yol(i, f) for i in range(len(self.ag.yuz_donguleri))]
+        for i, (yol, _) in enumerate(self._yollar):
+            noktalar = [f(q)[0] for d in self.ag.yuz_donguleri[i] for q in d]
+            icinde = all(r.contains(q) for q in noktalar) if not capraz else yol.intersects(r) or yol.contains(r)
+            if icinde:
+                if cikar:
+                    self.secili.discard(i)
+                else:
+                    self.secili.add(i)
         self.update()
         self.degisti.emit()
 

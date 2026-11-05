@@ -524,9 +524,10 @@ def govde3d_listesi(govdeler: list, ad, tur: str, k: float, katman: str = "",
             d.olcekle(k)
         gv = Govde3D(isim, tur, katman, ag, hata, "\n\n".join(g.tani), pr, sac, delikler)
         gv.yuzler = [] if hata else [y.olcekle(k) for y in g.yuz_bilgileri]
-        if ag is not None and gv.yuzler:
-            ag.yuz_donguleri = [y.donguler for y in gv.yuzler]
-            ag.yuz_alanlari = [y.alan for y in gv.yuzler]
-            ag.yuz_turleri = [("silindir" if y.tur == "koni" and not y.egim else y.tur) for y in gv.yuzler]
+        if ag is not None and gv.yuzler:  # seçilebilir yüzler (profilin içi hariç)
+            gorunur = [y for i, y in enumerate(gv.yuzler) if i not in g.gizli_yuzler]
+            ag.yuz_donguleri = [y.donguler for y in gorunur]
+            ag.yuz_alanlari = [y.alan for y in gorunur]
+            ag.yuz_turleri = [("silindir" if y.tur == "koni" and not y.egim else y.tur) for y in gorunur]
         out.append(gv)
     return out
