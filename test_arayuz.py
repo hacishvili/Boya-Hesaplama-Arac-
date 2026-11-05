@@ -219,7 +219,7 @@ class Arayuz(unittest.TestCase):
     def test_hata_raporu(self):
         import test_acis as T
         g = T.Govde()
-        T.Acis.kare_yuz(None, g, T.Acis.spline(None, g, 10.0), 5.0)  # kırpılmış spline yüz: hesaplanmaz
+        T.Acis.kare_yuz(None, g, T.Acis.spline(None, g, 10.0), 5.0, z=1.0)  # döngü yüzeyde değil: hesaplanmaz
         doc = ezdxf.new("R2007")
         doc.header["$INSUNITS"] = 4
         doc.modelspace().add_3dsolid().sat = g.satirlar()
@@ -229,7 +229,7 @@ class Arayuz(unittest.TestCase):
         self.assertFalse(d.rapor_dugmesi.isHidden())
         self.assertIn("exact_spl_sur", d.tablo.item(0, 6).toolTip())
         metin = d.hata_raporu_metni()
-        self.assertIn("kırpılmış ya da tanınmayan spline yüz (exact_spl_sur)", metin)
+        self.assertIn("tanınmayan spline yüz (exact_spl_sur)", metin)
         self.assertIn("{ exact_spl_sur 22600 full nubs 1 1", metin)
 
     def test_kalinlik_cizimden(self):
@@ -278,6 +278,33 @@ class Arayuz(unittest.TestCase):
         sp.setValue(5)
         self.assertEqual([k.adet for k in w.kalemler], [5, 5, 5])
         self.assertEqual(w.tablo.item(2, 2).text(), "5")
+
+    def test_kat_maske_ve_agirlik_paneli(self):
+        w = pencere.AnaPencere()
+        w.kalemler.append(pencere.Kalem("boru", {"tur": "kalip", "kalip": "Yuvarlak boru", "deger": {}},
+                                        toz=w.ayar.tozlar[0].ad))
+        w.kalemler.append(pencere.Kalem("elle", {"tur": "elle", "alan_m2": 0.1}, toz=w.ayar.tozlar[0].ad))
+        w._yenile(0)
+        self.assertNotEqual(w.tablo.item(0, 9).text(), "—")   # kalıbın ağırlığı hesaplanır
+        self.assertEqual(w.tablo.item(1, 9).text(), "—")
+        self.assertIn("1 kalemin ağırlığı bilinmiyor", w.toplam.text())
+        panel = w.ayrinti_alan.widget()
+        kat = [s for s in panel.findChildren(pencere.QSpinBox) if s.toolTip().startswith("Astar")][0]
+        kat.setValue(2)
+        self.assertEqual(w.kalemler[0].kat, 2)
+        self.assertIn("2 kat", w.tablo.item(0, 1).text())
+        w.tablo.selectRow(1)
+        w._secim()
+        panel = w.ayrinti_alan.widget()
+        elle = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "Elle gir"][0]
+        elle.setChecked(True)
+        agk = [s for s in panel.findChildren(pencere.QDoubleSpinBox) if s.suffix().strip() == "kg"][0]
+        agk.setValue(2.5)
+        self.assertEqual(w.kalemler[1].agirlik_kg, 2.5)
+        self.assertEqual(w.tablo.item(1, 9).text(), "2,500")
+        self.assertNotIn("bilinmiyor", w.toplam.text())
+        w.degisti = False
+        w.close()
 
     def test_coklu_secimle_toz(self):
         w = pencere.AnaPencere()

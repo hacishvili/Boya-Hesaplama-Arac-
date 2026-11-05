@@ -97,9 +97,9 @@ def main() -> int:
 
     w = pencere.AnaPencere()
     w.show()
-    if getattr(sys, "frozen", False) and w.ayar.guncelleme:  # paketlenmiş programda açılışta yeni sürüm denetimi
+    if getattr(sys, "frozen", False) and w.ayar.guncelleme:  # paketlenmiş programda sessiz güncelleme
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(1500, w.guncelleme_denetle)
+        QTimer.singleShot(1500, w.sessiz_guncelleme)
     dosyalar = [a for a in sys.argv[1:] if not a.startswith("-") and os.path.isfile(a)]
     projeler = [d for d in dosyalar if d.lower().endswith(".tozboya")]
     if projeler:

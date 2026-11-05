@@ -58,6 +58,7 @@ class Profil:
     ic: List[Tuple[float, float]] = field(default_factory=list)   # iç yüzler: (alan, eksen boyu)
     bosluk: float = 0.0               # boşluğun en büyük kesit ölçüsü (iç boya derinliği varsayılanı)
     koni: Optional[Dict] = None       # dış yüzü koni / silindirse açınım ölçüleri: d1, d2 (dış), boy, t
+    kesit_alani: float = 0.0          # ortadaki kesitin metal alanı (dış kontur − boşluklar), mm²; 0: kurulamadı
 
     @property
     def ic_alan(self) -> float:
@@ -69,7 +70,8 @@ class Profil:
 
     def sozluk(self) -> Dict:
         return {"boy": self.boy, "kesit": list(self.kesit), "dis": self.dis, "uc": self.uc,
-                "ic": [list(x) for x in self.ic], "bosluk": self.bosluk, "koni": self.koni}
+                "ic": [list(x) for x in self.ic], "bosluk": self.bosluk, "koni": self.koni,
+                "kesit_alani": self.kesit_alani}
 
 
 def profil_alani(p: Dict, ic_boya: str, derinlik: float, uc_boya: bool) -> float:
@@ -192,6 +194,8 @@ def coz(yuzler: Sequence[YuzBilgi], oran: float = 2.5) -> Optional[Profil]:
         return en
 
     pr = Profil(boy=boy, kesit=kesit)
+    if dis_kontur is not None:  # yay izleri kirişle: yuvarlatılmış köşelerde yaklaşık
+        pr.kesit_alani = max(0.0, dis_kontur.dis.alan - sum(d.alan for d in delikler))
     if delikler:
         pr.bosluk = max(max(d.kutu[2] - d.kutu[0], d.kutu[3] - d.kutu[1]) for d in delikler)
     daire_yuz = {i for i, _ in daireler}

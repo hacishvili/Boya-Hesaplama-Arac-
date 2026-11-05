@@ -32,6 +32,7 @@ class Kalip:
     alan: Callable[[Dict], float]
     ozet: Callable[[Dict], str]
     not_: str = ""
+    hacim: Optional[Callable[[Dict], float]] = None   # metal hacmi (mm³), ağırlık için
 
 
 def _d(d: Dict, k: str, kalip: "Kalip") -> float | str:
@@ -141,6 +142,36 @@ def _abkant(d: Dict) -> float:
     return 2 * (L * W - kesik) + (2 * (L + W) + kesik_c) * t  # iki yüz + dış ve kesik kenarları
 
 
+def _h_boru(d):
+    D, t, L = (float(d[x]) for x in ("D", "t", "L"))
+    return math.pi / 4 * (D * D - (D - 2 * t) ** 2) * L
+
+
+def _h_kutu(d):
+    a, b, t, L, r = (float(d[x]) for x in ("a", "b", "t", "L", "r"))
+    return (_profil_cevre_alan(a, b, r)[1] - _profil_cevre_alan(a - 2 * t, b - 2 * t, max(r - t, 0.0))[1]) * L
+
+
+def _h_konik(d):
+    D1, D2, t, L = (float(d[x]) for x in ("D1", "D2", "t", "L"))
+    kesik = lambda r1, r2: math.pi / 3 * L * (r1 * r1 + r1 * r2 + r2 * r2)
+    return kesik(D1 / 2, D2 / 2) - kesik(D1 / 2 - t, D2 / 2 - t)
+
+
+def _h_abkant(d):
+    L, W = abkant_acinim(d)
+    t, kesik = float(d["t"]), float(d["kesik"])
+    return (L * W - kesik) * t
+
+
+def hacim(ad: str, deger: Dict) -> Optional[float]:
+    """Kalıbın metal hacmi (mm³); kalıpta formül yoksa None."""
+    k = KALIPLAR.get(ad)
+    if k is None or k.hacim is None:
+        return None
+    return k.hacim({**varsayilanlar(ad), **deger})
+
+
 def _dogrula(kosul: bool, mesaj: str):
     if not kosul:
         raise ValueError(mesaj)
@@ -159,29 +190,29 @@ def _ekle(k: Kalip):
 _ekle(Kalip("Yuvarlak boru", [
     Olcu("D", "Dış çap Ø", 25.0), Olcu("t", "Et kalınlığı", 1.5), Olcu("L", "Boy", 400.0), _UC,
     Olcu("h", "İç boya derinliği (her uç)", 25.0, "mm", None, "açık uçta tozun içeri girdiği derinlik; yaklaşık bir çap"),
-], _yuvarlak_boru, lambda d: f"Boru Ø{_s(d, 'D')} × {_s(d, 't')} × {_s(d, 'L')} mm, uçlar {d.get('uc', 'açık')}"))
+], _yuvarlak_boru, lambda d: f"Boru Ø{_s(d, 'D')} × {_s(d, 't')} × {_s(d, 'L')} mm, uçlar {d.get('uc', 'açık')}", hacim=_h_boru))
 _ekle(Kalip("Kutu profil", [
     Olcu("a", "Kenar a", 40.0), Olcu("b", "Kenar b", 20.0), Olcu("t", "Et kalınlığı", 1.5),
     Olcu("L", "Boy", 400.0), Olcu("r", "Dış köşe yarıçapı", 3.0), _UC,
     Olcu("h", "İç boya derinliği (her uç)", 40.0, "mm", None, "açık uçta tozun içeri girdiği derinlik"),
 ], _kutu_profil, lambda d: f"Profil {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')}, boy {_s(d, 'L')} mm, "
-                           f"uçlar {d.get('uc', 'açık')}"))
+                           f"uçlar {d.get('uc', 'açık')}", hacim=_h_kutu))
 _ekle(Kalip("Konik ayak (boru)", [
     Olcu("D1", "Üst çap Ø1", 40.0), Olcu("D2", "Alt çap Ø2", 25.0), Olcu("t", "Et kalınlığı", 1.5),
     Olcu("L", "Boy", 150.0), _UC, Olcu("h", "İç boya derinliği (her uç)", 30.0),
 ], _konik_boru, lambda d: f"Konik ayak Ø{_s(d, 'D1')} → Ø{_s(d, 'D2')}, boy {_s(d, 'L')} mm, "
-                          f"uçlar {d.get('uc', 'açık')}"))
+                          f"uçlar {d.get('uc', 'açık')}", hacim=_h_konik))
 _ekle(Kalip("Dolu yuvarlak çubuk", [
     Olcu("D", "Çap Ø", 12.0), Olcu("L", "Boy", 300.0),
     Olcu("uclar", "Uç yüzleri", "boyanır", "", ("boyanır", "boyanmaz")),
-], _dolu_yuvarlak, lambda d: f"Çubuk Ø{_s(d, 'D')} × {_s(d, 'L')} mm"))
+], _dolu_yuvarlak, lambda d: f"Çubuk Ø{_s(d, 'D')} × {_s(d, 'L')} mm", hacim=lambda d: math.pi / 4 * float(d['D']) ** 2 * float(d['L'])))
 _ekle(Kalip("Lama / dolu kare", [
     Olcu("a", "Genişlik a", 30.0), Olcu("b", "Kalınlık b", 5.0), Olcu("L", "Boy", 300.0),
     Olcu("uclar", "Uç yüzleri", "boyanır", "", ("boyanır", "boyanmaz")),
-], _lama, lambda d: f"Lama {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 'L')} mm"))
+], _lama, lambda d: f"Lama {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 'L')} mm", hacim=lambda d: float(d['a']) * float(d['b']) * float(d['L'])))
 _ekle(Kalip("Sac levha", [
     Olcu("a", "En", 300.0), Olcu("b", "Boy", 200.0), Olcu("t", "Kalınlık", 1.5),
-], _sac, lambda d: f"Sac {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')} mm, iki yüz + kesim kenarları"))
+], _sac, lambda d: f"Sac {_s(d, 'a')} × {_s(d, 'b')} × {_s(d, 't')} mm, iki yüz + kesim kenarları", hacim=lambda d: float(d['a']) * float(d['b']) * float(d['t'])))
 
 _ekle(Kalip("Abkant sac (açınım)", [
     Olcu("k1", "Kenar 1 (dış ölçü)", 400.0, "mm", None, "bükümler arası DIŞ ölçüler, sırayla; kullanılmayan kenar 0"),
@@ -192,7 +223,7 @@ _ekle(Kalip("Abkant sac (açınım)", [
     Olcu("K", "K-faktörü", 0.4, "", None, "0,33 – 0,5; atölyede yaygın 0,4"),
     Olcu("kesik", "Kesik / pencere alanı (toplam)", 0.0, "mm²", None, "açınımdaki delik ve pencerelerin toplam alanı"),
     Olcu("kesik_c", "Kesiklerin çevresi (toplam)", 0.0, "mm", None, "kesik kenarları kalınlık kadar boyanır"),
-], _abkant, lambda d: _abkant_ozet(d)))
+], _abkant, lambda d: _abkant_ozet(d), hacim=_h_abkant))
 
 
 def _s(d: Dict, k: str) -> str:

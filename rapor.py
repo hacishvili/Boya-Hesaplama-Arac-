@@ -10,18 +10,35 @@ from typing import List
 from hesap import Ayarlar, Kalem, kalem_sonucu, kaynak_aciklamasi, ozet, sayi, yontem_ozeti
 
 BASLIKLAR = ["Parça", "Açıklama", "Adet", "Alan / adet (m²)", "Toplam alan (m²)", "Toz", "Kalınlık (µm)",
-             "Toz / adet (g)", "Toplam toz (kg)", "Toz tutarı", "Proses tutarı", "Tutar"]
+             "Toz / adet (g)", "Toplam toz (kg)", "Toz tutarı", "Proses tutarı", "Tutar", "Ağırlık / adet (kg)",
+             "Toplam ağırlık (kg)"]
+
+
+def ek_aciklama(k: Kalem) -> str:
+    """Maske ve kat bilgisi (açıklamaya eklenir)."""
+    s = ""
+    if k.maske_yuzde:
+        s += f"; maske %{sayi(k.maske_yuzde, 1)}"
+    if k.maske_cm2:
+        s += f"; maske {sayi(k.maske_cm2, 1)} cm²"
+    if k.kat > 1:
+        s += f"; {k.kat} kat"
+    return s
+
+
+def agirlik_metni(x, basamak: int = 3) -> str:
+    return "—" if x is None else sayi(x, basamak)
 
 
 def satirlar(kalemler: List[Kalem], a: Ayarlar) -> List[List[str]]:
     out = []
     for k in kalemler:
         s = kalem_sonucu(k, a)
-        out.append([k.ad, kaynak_aciklamasi(k.kaynak) + (f"; maske {sayi(k.maske_cm2, 1)} cm²" if k.maske_cm2 else ""),
+        out.append([k.ad, kaynak_aciklamasi(k.kaynak) + ek_aciklama(k),
                     str(k.adet), sayi(s.alan_m2, 4), sayi(s.toplam_m2, 3), a.toz(k.toz).ad,
                     "—" if s.kalinlik_um is None else sayi(s.kalinlik_um, 0),
                     sayi(s.toz_g_adet, 1), sayi(s.toz_kg, 3), sayi(s.toz_tl, 2), sayi(s.proses_tl, 2),
-                    sayi(s.tutar, 2)])
+                    sayi(s.tutar, 2), agirlik_metni(s.agirlik_kg_adet), agirlik_metni(s.agirlik_kg, 2)])
     return out
 
 
@@ -33,7 +50,7 @@ def csv_yaz(yol: str, kalemler: List[Kalem], a: Ayarlar) -> None:
     o = ozet(kalemler, a)
     satir = [BASLIKLAR] + satirlar(kalemler, a)
     satir.append(["TOPLAM", "", str(o.toplam_adet), "", sayi(o.toplam_m2, 3), "", "", "", sayi(o.toz_kg, 3),
-                  sayi(o.toz_tl, 2), sayi(o.proses_tl, 2), sayi(o.tutar, 2)])
+                  sayi(o.toz_tl, 2), sayi(o.proses_tl, 2), sayi(o.tutar, 2), "", sayi(o.agirlik_kg, 2)])
     satir.append([])
     satir.append(["Toz hesabı", yontem_ozeti(a)])
     satir.append(["Proses ücreti", f"{sayi(a.proses_tl_m2, 2)} {a.para}/m²"])
@@ -50,8 +67,8 @@ def html_rapor(kalemler: List[Kalem], a: Ayarlar, musteri: str = "", baslik: str
     e = html.escape
     o = ozet(kalemler, a)
     tarih = datetime.date.today().strftime("%d.%m.%Y")
-    sag = {2, 3, 4, 6, 7, 8, 9, 10, 11}
-    genislik = {0: 11, 1: 24, 5: 11}
+    sag = {2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13}
+    genislik = {0: 10, 1: 20, 5: 10}
     th = "".join(f"<th width={genislik.get(i, 6)}%>{e(b)}</th>" for i, b in enumerate(BASLIKLAR))
     govde = ""
     for r in satirlar(kalemler, a):
@@ -60,7 +77,8 @@ def html_rapor(kalemler: List[Kalem], a: Ayarlar, musteri: str = "", baslik: str
     govde += (f"<tr class=t><td><b>TOPLAM</b></td><td></td><td align=right><b>{o.toplam_adet}</b></td><td></td>"
               f"<td align=right><b>{sayi(o.toplam_m2, 3)}</b></td><td></td><td></td><td></td>"
               f"<td align=right><b>{sayi(o.toz_kg, 3)}</b></td><td align=right><b>{sayi(o.toz_tl, 2)}</b></td>"
-              f"<td align=right><b>{sayi(o.proses_tl, 2)}</b></td><td align=right><b>{sayi(o.tutar, 2)}</b></td></tr>")
+              f"<td align=right><b>{sayi(o.proses_tl, 2)}</b></td><td align=right><b>{sayi(o.tutar, 2)}</b></td>"
+              f"<td></td><td align=right><b>{sayi(o.agirlik_kg, 2)}</b></td></tr>")
     oran = (lambda t: f"1 kg = {sayi(t.sarfiyat_m2_kg, 1)} m²") if a.pratik else \
         (lambda t: f"{sayi(t.yogunluk, 2)} g/cm³")
     tozlar = "".join(
@@ -81,5 +99,7 @@ th, td {{ border: 1px solid #b8c2cc; padding: 3px 5px; }} tr.t td {{ background:
 <p><b>Toz ihtiyacı</b> ({e(yontem_ozeti(a))})</p>
 <table><tr><th>Toz</th><th>Miktar</th><th>{"Sarfiyat" if a.pratik else "Yoğunluk"}</th><th>Fiyat</th></tr>{tozlar}</table>
 <p class=alt>{formul} Alanlar çizimden (2D açınım, 3D gövde) ya da kalıptan
-hesaplanmıştır; maskelenen yüzeyler düşülmüştür. Proses ücreti: {sayi(a.proses_tl_m2, 2)} {e(a.para)}/m².</p>
+hesaplanmıştır; maskelenen yüzeyler düşülmüştür; çok katlı kalemlerde toz ve proses kat sayısıyla çarpılır.
+Proses ücreti: {sayi(a.proses_tl_m2, 2)} {e(a.para)}/m² (kat başına). Ağırlık: metal hacmi × {sayi(a.metal_yogunluk, 2)}
+g/cm³{f"; {o.agirliksiz} kalemin ağırlığı bilinmiyor (—)" if o.agirliksiz else ""}.</p>
 </body></html>"""

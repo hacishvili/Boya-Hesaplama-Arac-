@@ -346,6 +346,18 @@ class Ag:
             return self.alan_hazir
         return sum(cokgen_alani(y) for y in self.yuzler)
 
+    def hacim(self) -> Optional[float]:
+        """Kapalı çokgen ağın içine aldığı hacim (mm³; yüzler tutarlı yönlü olmalı); açık ya da tel ağda None."""
+        if self.tel or not self.yuzler or not self.kapali_mi():
+            return None
+        v = 0.0
+        for y in self.yuzler:
+            a = y[0]
+            for b, c in zip(y[1:], y[2:]):  # yelpaze üçgenleri, orijinle dört yüzlü
+                v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                      + a[2] * (b[0] * c[1] - b[1] * c[0]))
+        return abs(v) / 6.0
+
     def _anahtar(self, p: Nokta3, tol: float) -> Tuple[int, int, int]:
         return round(p[0] / tol), round(p[1] / tol), round(p[2] / tol)
 

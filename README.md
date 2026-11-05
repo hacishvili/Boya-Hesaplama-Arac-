@@ -11,9 +11,10 @@ Python gerektirmeyen Windows paketi deponun **Releases** sayfasında:
 https://github.com/hacishvili/Boya-Hesaplama-Arac-/releases/latest. `TozBoyaHesap_<sürüm>.zip` indirilip
 yazılabilir bir klasöre (Belgeler, Masaüstü; Program Files değil) açılır, `TozBoyaHesap.exe` çalıştırılır.
 
-Program açılışta GitHub'da yeni sürüm olup olmadığına bakar (Yardım → Güncellemeleri denetle; Ayarlar'dan
-kapatılabilir). Yeni sürüm varsa sorar, indirir, SHA-256 özetini doğrular, kendini kapatıp yeni dosyaları kendi
-klasörünün üstüne kopyalar ve yeniden açılır. Ayarlar ve projeler etkilenmez.
+Güncelleme sessizdir: program açılışta GitHub'da yeni sürüm varsa sormadan arka planda indirir ve SHA-256
+özetini doğrular (durum çubuğunda yazar). Program kapanınca yeni dosyalar kendi klasörünün üstüne kopyalanır; bir
+sonraki açılış yeni sürümle olur. Kurulum yapılamazsa (klasöre yazılamıyorsa) sonraki açılışta bildirilir. Ayarlar'dan
+kapatılabilir; Yardım → Güncellemeleri denetle hemen sorup kurar. Ayarlar ve projeler etkilenmez.
 
 Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleştirmek yeter; GitHub Actions testleri
 çalıştırır, paketi derler ve `v<sürüm>` olarak Releases'e koyar. Numara artmadıkça yeni yayın çıkmaz.
@@ -59,9 +60,11 @@ Yeni sürüm yayımlamak: `surum.py`'deki numarayı artırıp `main`'e birleşti
   Çaplar dış / orta / iç yüzeyden verilir; açınım nötr eksenden (K = 0,5, değiştirilebilir) hesaplanır: kesik
   konide halka dilimi (iç ve dış yarıçap, açı), silindirde dikdörtgen. Seçili kalem konik ayak / boru kalıbı ya da
   3D konik profilse ölçüler kendiliğinden dolar (3D boruda sac kalınlığı modelden).
-- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan, cm²), tozu (teorik yöntemde film kalınlığı).
+- **Ayrıntı paneli:** her parçanın adedi, maskesi (boyanmayan alan; cm² ve/veya çizim alanının yüzdesi), kat
+  sayısı (astar + son kat: 2), tozu (teorik yöntemde film kalınlığı) ve ağırlığı (çizimden; çıkmıyorsa elle).
   Birden çok kalem seçilince (Ctrl / Shift) toz hepsine birden atanır.
-- **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, DWG için ODA
+- **Ayarlar ve tozlar:** hesap yöntemi (pratik / teorik), m² başına proses ücreti, para birimi, metal yoğunluğu
+  (ağırlık için; çelik 7,85 g/cm³), DWG için ODA
   dönüştürücüsünün yolu ve toz kütüphanesi (sarfiyat m²/kg, fiyat; teorik yöntem için yoğunluk, kalınlık). Bu ayarlar `%APPDATA%\TozBoyaHesap\ayarlar.json` dosyasında saklanır.
 - **Proje dosyası:** `.tozboya`. Hesap için gereken her şey bu dosyanın içindedir; çizim dosyası taşınsa da
   proje açılır.
@@ -77,6 +80,14 @@ tutar    = toz (kg) × toz fiyatı  +  alan (m²) × proses ücreti
 ```
 
 Örnek: 0,25 m²'lik ayak, 400 adet: 100 m² → 16,7 kg toz (adet başına 41,7 g).
+
+Maske düşüldükten sonra kalan alan boyanır: `alan = çizim alanı × (1 − maske %) − maske cm²`. Çok katlı işlerde
+(astar + son kat) toz ve proses kat sayısıyla çarpılır; alan bir kez sayılır.
+
+**Ağırlık** (fırın / askı yükü, ağırlıkla fiyatlama): `metal hacmi × yoğunluk`. Hacim 2D sacta yüz × kalınlık,
+3D sacta kalınlık × yüz, 3D profilde ortadaki kesitin metal alanı × boy (yuvarlatılmış köşelerde yaklaşık), kapalı
+STL / mesh gövdede ağın hacmi, kalıplarda ölçülerden. Dolu ACIS gövdelerde ve elle alan kalemlerinde hesaplanmaz
+(tabloda —); ağırlık ayrıntı panelinden elle girilir.
 
 İstenirse ayarlardan **teorik** yönteme geçilir; o zaman film kalınlığı, yoğunluk ve transfer verimi kullanılır:
 
@@ -116,9 +127,10 @@ Daireler tam formülle (πr²) hesaplanır. Yaylar en çok 0,0005 mm sehimle ço
   gövde değil).
 - **AutoCAD katıları (3DSOLID, metin ya da ikili ACIS):** yüzeyin türüne göre:
   - **düzlem, silindir, koni, küre, torus (boru dirseği):** kesin formülle;
-  - **spline (NURBS):** loft yapılmış konik / oval ayak gibi kırpılmamış yüzeyler sayısal integralle.
+  - **spline (NURBS):** loft yapılmış konik / oval ayak gibi yüzeyler sayısal integralle; kırpılmış (yüzeyin
+    yalnız bir kısmını kullanan) yüzlerde kenarlar yüzeyin parametre alanına izdüşürülür, alan o bölge üzerinden.
 
-  Kırpılmış spline yüzler ve desteklenmeyen yüzey türleri hesaplanmaz. Program böyle bir gövdeye eksik alan
+  Kenarları yüzeyin üzerinde olmayan spline yüzler ve desteklenmeyen yüzey türleri hesaplanmaz. Program böyle bir gövdeye eksik alan
   vermez; gövde hata ile listelenir. O zaman çizimi STL olarak isteyin (AutoCAD'de `STLOUT`) ya da parçayı
   kalıptan ekleyin.
 

@@ -66,6 +66,8 @@ class Ag3D(unittest.TestCase):
         a = Ag(kup(0, 0, 0, 10))
         self.assertAlmostEqual(a.alan, 600.0)
         self.assertTrue(a.kapali_mi())
+        self.assertAlmostEqual(a.hacim(), 1000.0)
+        self.assertIsNone(Ag(kup(0, 0, 0, 10)[:5]).hacim())  # açık ağ: hacim yok
 
     def test_acik_ve_govdeler(self):
         acik = Ag(kup(0, 0, 0, 10)[:5])

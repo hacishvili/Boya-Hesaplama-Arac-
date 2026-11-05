@@ -76,6 +76,67 @@ class Guncelleme(unittest.TestCase):
         with self.assertRaises(OSError):  # kaynaktan çalışırken kendini güncellemez
             guncelleme.kur(os.path.join(self.klasor, "z.zip"))
 
+    def test_sessiz_hazirlama(self):
+        veri = b"PK" + os.urandom(3000)
+        ozet = hashlib.sha256(veri).hexdigest() + "  TozBoyaHesap_0.10.0.zip\n"
+        istek = []
+
+        def ag(r, **k):
+            url = r.full_url if hasattr(r, "full_url") else r
+            istek.append(url)
+            if "api.github.com" in url:
+                return Sahte(json.dumps(YAYIN).encode())
+            return Sahte(ozet.encode() if url.endswith(".sha256") else veri)
+        urllib.request.urlopen = ag
+        eski = os.path.join(self.klasor, "TozBoyaHesap_0.9.0.zip")
+        open(eski, "wb").close()
+        self.assertIsNone(guncelleme.hazirla("0.10.0", self.klasor))  # güncel
+        surum, yol = guncelleme.hazirla("0.9.0", self.klasor)
+        self.assertEqual(surum, "0.10.0")
+        with open(yol, "rb") as f:
+            self.assertEqual(f.read(), veri)
+        self.assertFalse(os.path.exists(eski))  # eski sürümün zip'i silinir
+        istek.clear()
+        guncelleme.hazirla("0.9.0", self.klasor)  # zaten indirilmiş: zip yeniden indirilmez
+        self.assertFalse(any(u.endswith(".zip") for u in istek))
+        ozet = "0" * 64 + "  z.zip"  # bozuk indirme: kurulmaz
+        os.remove(yol)
+        self.assertIsNone(guncelleme.hazirla("0.9.0", self.klasor))
+        self.assertEqual([a for a in os.listdir(self.klasor) if a.endswith((".zip", ".part"))], [])
+
+    def test_sessiz_kurulum_betigi_ve_hata(self):
+        b = guncelleme.kurulum_betigi(r"C:\T\y", r"C:\P", r"C:\T", 7, baslat=False)
+        self.assertNotIn("start", b)
+        self.assertNotIn("pause", b)  # pencere yok: hata günlüğe
+        self.assertIn(guncelleme.HATA_GUNLUGU, b)
+        self.assertIn("start", guncelleme.kurulum_betigi(r"C:\T\y", r"C:\P", r"C:\T", 7))
+        with open(guncelleme.HATA_GUNLUGU, "w", encoding="utf-8") as f:
+            f.write("yazilamiyor")
+        self.assertEqual(guncelleme.hata_oku(), "yazilamiyor")
+        self.assertEqual(guncelleme.hata_oku(), "")  # okununca silinir
+
+    def test_pencere_kapanista_kurar(self):
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance() or QApplication([])
+        os.environ["APPDATA"] = self.klasor
+        import pencere
+        w = pencere.AnaPencere()
+        kur = []
+        asil = guncelleme.kur
+        guncelleme.kur = lambda z, pid=None, baslat=True: kur.append((z, baslat))
+        try:
+            w._sessiz_hazir(None)
+            self.assertIsNone(w._hazir)
+            zip_yolu = os.path.join(self.klasor, "z.zip")
+            open(zip_yolu, "wb").close()
+            w._sessiz_hazir(("0.10.0", zip_yolu))
+            self.assertIn("0.10.0", w.statusBar().currentMessage())
+            w.degisti = False
+            w.close()
+        finally:
+            guncelleme.kur = asil
+        self.assertEqual(kur, [(zip_yolu, False)])
+
     def test_pencere_sessiz_denetim(self):
         from PySide6.QtWidgets import QApplication
         QApplication.instance() or QApplication([])
