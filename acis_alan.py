@@ -122,6 +122,7 @@ def kayitlari_oku(e) -> List[Kayit]:
         veri = e.sat
         if not veri:
             raise AcisHatasi("ACIS verisi boş")
+        veri = sat_satirlari(veri)
         ham = sat.parse_sat(veri).entities
         cevir = _sat_ogesi
     harita: Dict[int, Kayit] = {}
@@ -140,6 +141,38 @@ def kayitlari_oku(e) -> List[Kayit]:
                 else:
                     k.oge.append(y)
     return kayitlar
+
+
+def sat_satirlari(satirlar: Sequence[str]) -> List[str]:
+    """SAT satırlarını kayıt başına bir satıra getirir. Bazı programlar (AutoCAD'in kimi sürümleri) uzun kaydı sabit
+    genişlikte, sayının ortasından böler ("-0.1" + "90865…"); ezdxf satırları boşlukla birleştirdiği için sayı ikiye
+    ayrılır. '#' ile bitmeyen satırların çoğu aynı uzunluktaysa bu bir sert bölmedir: o satırlar boşluksuz eklenir."""
+    from collections import Counter
+    satirlar = list(satirlar)
+    if len(satirlar) <= 3:
+        return satirlar
+    bas, govde = satirlar[:3], satirlar[3:]
+    son = len(govde)
+    for i, l in enumerate(govde):
+        if l.startswith(("End-of-ACIS-data", "Begin-of-ACIS-History-Data")):
+            son = i
+            break
+    acik = [l for l in govde[:son] if not l.rstrip().endswith("#")]
+    sert = None
+    if acik:
+        L, n = Counter(len(l) for l in acik).most_common(1)[0]
+        if L >= 40 and (n >= 2 and n * 2 >= len(acik) or n == len(acik) and L >= 200):
+            sert = L
+    out, tampon = [], ""
+    for l in govde[:son]:
+        if l.rstrip().endswith("#"):
+            out.append(tampon + l)
+            tampon = ""
+        else:
+            tampon += l if sert is not None and len(l) == sert else l + " "
+    if tampon.strip():
+        out.append(tampon)
+    return bas + out + govde[son:]
 
 
 def _sat_ogesi(x):
@@ -753,6 +786,10 @@ class Yuzey:
             self.c, self.a, M, oran = tuple(s[0:3]), _birim(tuple(s[3:6])), tuple(s[6:9]), s[9]
             self.oran = abs(oran)  # eliptik: küçük yarı eksen = oran · |M| (e2 yönünde)
             self.r0 = _boy(M)
+            if abs(self.oran - 1.0) <= 1e-4:
+                # neredeyse dairesel (CAD yuvarlama artığı, ör. 0,99998): ortalama yarıçapla daire; alan hatası < 1e-4
+                self.r0 *= (1.0 + self.oran) / 2
+                self.oran = 1.0
             self.e1 = _birim(M)
             self.e2 = _dis(self.a, self.e1)
             # oran'dan sonra aralıklar, sonra sin, cos
