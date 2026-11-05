@@ -62,14 +62,20 @@ class Onizleme(QWidget):
         self._p2: Optional[Parca2D] = None
         self._ag: Optional[Ag] = None
         self._yazi = ""
+        self._dikis: Dict[int, int] = {}   # kenar sırası → taraf (1 / 2): seçili kaynak dikişleri
+        self._yuzey: set = set()           # seçili yüzler (polisaj vb.)
 
     def sizeHint(self):
         return QSize(320, 240)
 
-    def goster(self, geo, yazi: str = ""):
+    def goster(self, geo, yazi: str = "", kaynak: Optional[dict] = None):
+        """kaynak: kalemin kaynağı; seçili kaynak dikişleri ve işlem yüzeyleri de çizilir."""
         self._p2 = geo if isinstance(geo, Parca2D) else None
         self._ag = geo if isinstance(geo, Ag) else None
         self._yazi = yazi
+        k = kaynak or {}
+        self._dikis = {int(d[0]): int(d[1]) for d in k.get("kaynak_dikisleri", [])}
+        self._yuzey = {int(x[0]) for sec in (k.get("yuzey_secimi") or {}).values() for x in sec}
         self.update()
 
     def paintEvent(self, _):
@@ -110,6 +116,45 @@ class Onizleme(QWidget):
         p.setPen(QPen(QColor(30, 80, 140), 1.2))
         p.drawPath(yol)
 
+    YUZEY_RENGI = QColor(30, 160, 90, 110)
+    DIKIS_RENGI = {1: QColor(200, 30, 30), 2: QColor(120, 0, 140)}
+
+    def _secimleri_ciz(self, p: QPainter, f):
+        """Seçili işlem yüzeyleri (yeşil) ve kaynak dikişleri (kırmızı: tek, mor: iki taraflı)."""
+        ag = self._ag
+        p.setPen(Qt.NoPen)
+        p.setBrush(self.YUZEY_RENGI)
+        for i in sorted(self._yuzey):
+            if i >= len(ag.yuz_donguleri):
+                continue
+            yol = QPainterPath()
+            yol.setFillRule(Qt.OddEvenFill)
+            donguler = [[f(q) for q in d] for d in ag.yuz_donguleri[i]]
+            if i < len(ag.yuz_turleri) and ag.yuz_turleri[i] == "duzlem":
+                for d in donguler:
+                    yol.addPolygon(QPolygonF(d))
+                    yol.closeSubpath()
+            else:
+                yol.addPolygon(QPolygonF(_zarf2([q for d in donguler for q in d])))
+                yol.closeSubpath()
+            p.drawPath(yol)
+        p.setBrush(Qt.NoBrush)
+        for i, t in sorted(self._dikis.items()):
+            if 0 <= i < len(ag.kenarlar):
+                p.setPen(QPen(self.DIKIS_RENGI.get(t, self.DIKIS_RENGI[1]), 3.5 if t == 2 else 2.5))
+                p.drawPolyline(QPolygonF([f(q) for q in ag.kenarlar[i]]))
+        if self._dikis or self._yuzey:  # açıklama
+            x, y = 8, 6
+            for renk, ad, var in ((self.DIKIS_RENGI[1], "kaynak (tek taraflı)", 1 in self._dikis.values()),
+                                  (self.DIKIS_RENGI[2], "kaynak (iki taraflı)", 2 in self._dikis.values()),
+                                  (self.YUZEY_RENGI, "seçili yüzey (polisaj)", bool(self._yuzey))):
+                if not var:
+                    continue
+                p.fillRect(QRectF(x, y + 3, 14, 8), renk)
+                p.setPen(self.palette().text().color())
+                p.drawText(QRectF(x + 20, y, 220, 14), Qt.AlignLeft | Qt.AlignVCenter, ad)
+                y += 16
+
     def _ciz3(self, p: QPainter, r: QRectF):
         c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
         yuzler = self._ag.yuzler
@@ -133,6 +178,7 @@ class Onizleme(QWidget):
                 p.setPen(QPen(QColor(220, 110, 0), 1.8))
                 for y in self._ag.vurgu:
                     p.drawPolygon(QPolygonF([donus(*proj(q)) for q in y]))
+            self._secimleri_ciz(p, lambda q: donus(*proj(q)))
             return
         isik = (-0.4, -0.5, 0.77)
         sirali = sorted(yuzler, key=lambda y: sum(q[0] + q[1] - q[2] * 0.0 for q in y) / len(y), reverse=True)
@@ -2014,7 +2060,7 @@ class AnaPencere(QMainWindow):
         geo = getattr(k, "geo", None)
         self._onizleme.goster(geo, "" if geo is not None else
                               ("Önizleme yalnız çizimden eklenen kalemlerde" if k.kaynak["tur"] != "kalip"
-                               else kaliplar.aciklama(k.kaynak["kalip"], k.kaynak.get("deger", {}))))
+                               else kaliplar.aciklama(k.kaynak["kalip"], k.kaynak.get("deger", {}))), k.kaynak)
         return w
 
     def _islem_kutusu(self, r: int) -> QGroupBox:

@@ -472,6 +472,11 @@ class Arayuz(unittest.TestCase):
         self.assertAlmostEqual(g._izdus()(q)[0].x(), sonra.x() + 40, places=6)
         g.sigdir()
         self.assertEqual((g.zoom, g.kay), (1.0, QPointF(0, 0)))
+        o = pencere.Onizleme()                                           # alt önizleme seçimleri gösterir
+        o.resize(400, 300)
+        o.goster(k.geo, "", {"kaynak_dikisleri": [[i, 2, 62.8]], "yuzey_secimi": {"Polisaj": [[0, 100.0]]}})
+        self.assertEqual((o._dikis, o._yuzey), ({i: 2}, {0}))
+        o.grab()
         w.degisti = False
         w.close()
 
