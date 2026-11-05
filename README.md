@@ -94,6 +94,8 @@ boyanır). Kenardan açılan (açık uçlu) çentikler ve boru duvarındaki deli
 birim fiyatı tanımlanır, yeni işlem eklenebilir. Kalemde adet başına miktar girilir; havşa sayısı çizimden gelir
 ("elle" işaretlenince değiştirilir). Kaynak metresi 3D çizimden seçilir ("Seç…"): parçanın kenarları döndürülüp
 yakınlaştırılabilen pencerede gösterilir, tıklanan kenar tek taraflı → iki taraflı (×2) → kaldır olarak değişir.
+Pencerede fare CAD programlarındaki gibi: tekerlek imlecin altındaki noktaya yakınlaştırır, sol tuşla sürüklemek
+döndürür, orta (ya da sağ) tuşla sürüklemek kaydırır, orta tuşa çift tık ya da F tuşu parçayı sığdırır.
 Birbirine değen katılarda (ör. sacın üstüne dikilmiş boru) değme kenarları kaynak yeri olarak önerilir ve içe
 aktarırken tek taraflı seçilir; bir dikiş iki gövdede de kenarsa bir kez sayılır.
 Kaynak teli (Ayarlar): çap, kg fiyatı ve makara ağırlığı girilir. Dikiş boyu kadar tel harcandığı kabul edilir:

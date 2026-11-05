@@ -459,6 +459,19 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(len(p.dikisler()), 1)
         p.gorunum.resize(600, 400)
         p.gorunum.grab()                                                 # çizim hatasız
+        g = p.gorunum                                                    # imleçte yakınlaştırma: imlecin altı yerinde
+        f = g._izdus()
+        q = k.geo.kenarlar[i][0]
+        once = f(q)[0]
+        g.yakinlastir(once, 3.0)
+        sonra = g._izdus()(q)[0]
+        self.assertAlmostEqual(once.x(), sonra.x(), places=6)
+        self.assertAlmostEqual(once.y(), sonra.y(), places=6)
+        self.assertAlmostEqual(g.zoom, 3.0)
+        g.kay += QPointF(40, -10)                                        # kaydırma
+        self.assertAlmostEqual(g._izdus()(q)[0].x(), sonra.x() + 40, places=6)
+        g.sigdir()
+        self.assertEqual((g.zoom, g.kay), (1.0, QPointF(0, 0)))
         w.degisti = False
         w.close()
 
