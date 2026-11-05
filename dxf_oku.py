@@ -230,13 +230,33 @@ def _bulge_noktalari(p0, p1, bulge: float, sapma: float):
     return out
 
 
+def _elips_noktalari(e, sapma: float):
+    """ELLIPSE noktaları. Parametre aralığı −π … π gibi yazılmış tam elipste ezdxf hiç nokta vermiyor: aralık
+    burada açılır (bitiş ≤ başlangıçsa + 2π; tam tur 2π)."""
+    from ezdxf.math import Vec3
+    c, M = Vec3(e.dxf.center), Vec3(e.dxf.major_axis)
+    m = Vec3(e.minor_axis)
+    t0, t1 = float(e.dxf.start_param), float(e.dxf.end_param)
+    aci = t1 - t0
+    if abs(abs(aci) - 2 * math.pi) <= 1e-9 or abs(aci) <= 1e-12:
+        aci = 2 * math.pi
+    else:
+        aci %= 2 * math.pi
+    a = max(M.magnitude, 1e-12)
+    adim = 2.0 * math.acos(max(-1.0, 1.0 - sapma / a)) if sapma < a else math.pi / 2
+    n = max(8, int(math.ceil(aci / max(adim, 1e-6))))
+    return [c + M * math.cos(t0 + aci * i / n) + m * math.sin(t0 + aci * i / n) for i in range(n + 1)]
+
+
 def _cizgi_noktalari(e, sapma: float):
     """Eğrinin WCS noktaları: yay ve daire gerçek yay üstünden (sehim ≤ sapma); polyline yaylı köşeleriyle."""
     from ezdxf.math import Vec3
     tur = e.dxftype()
     if tur == "LINE":
         return [Vec3(e.dxf.start), Vec3(e.dxf.end)]
-    if tur in ("ARC", "CIRCLE", "ELLIPSE", "SPLINE"):
+    if tur == "ELLIPSE":
+        return _elips_noktalari(e, sapma)
+    if tur in ("ARC", "CIRCLE", "SPLINE"):
         return [Vec3(p) for p in e.flattening(sapma)]
     if tur == "POLYLINE" and e.is_3d_polyline:
         pts = [Vec3(v.dxf.location) for v in e.vertices]
