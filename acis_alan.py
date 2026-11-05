@@ -751,8 +751,7 @@ class Yuzey:
         elif k.ad == "cone-surface":
             self.tur = "koni"
             self.c, self.a, M, oran = tuple(s[0:3]), _birim(tuple(s[3:6])), tuple(s[6:9]), s[9]
-            if abs(oran - 1.0) > 1e-9:
-                raise AcisHatasi("eliptik silindir / koni desteklenmez")
+            self.oran = abs(oran)  # eliptik: küçük yarı eksen = oran · |M| (e2 yönünde)
             self.r0 = _boy(M)
             self.e1 = _birim(M)
             self.e2 = _dis(self.a, self.e1)
@@ -764,6 +763,8 @@ class Yuzey:
             self.egim = sn / cs if abs(cs) > 1e-15 else None
             if self.egim is None:
                 raise AcisHatasi("düzlemsel koni desteklenmez")
+            if abs(self.oran - 1.0) > 1e-9 and self.egim != 0.0:
+                raise AcisHatasi("eliptik koni desteklenmez")
             self.olcum: List[Tuple[float, float]] = []
         elif k.ad == "sphere-surface":
             self.tur = "kure"
@@ -796,6 +797,23 @@ class Yuzey:
                 x1, y1 = uv[(i + 1) % n]
                 s += x0 * y1 - x1 * y0
             return 0.5 * s, 0, 0
+        if self.tur == "koni" and abs(self.oran - 1.0) > 1e-9:
+            # eliptik silindir: p = c + R cos θ e1 + oran R sin θ e2 + h a; dA = R √(sin²θ + oran² cos²θ) dθ dh
+            R, q = self.r0, self.oran
+            hiz = lambda t: R * math.sqrt(math.sin(t) ** 2 + (q * math.cos(t)) ** 2)
+            h, th = [], []
+            for p in pts:
+                d = _cik(p, self.c)
+                h.append(_ic(d, self.a))
+                th.append(math.atan2(_ic(d, self.e2) / q, _ic(d, self.e1)))
+            s, dol = 0.0, 0.0
+            for i in range(n):
+                j = (i + 1) % n
+                dt = _sar(th[j] - th[i])
+                dol += dt
+                tm = th[i] + dt / 2  # hız orta noktada (Simpson): dθ uzunsa da doğru
+                s += -dt / 6 * (h[i] * hiz(th[i]) + 4 * 0.5 * (h[i] + h[j]) * hiz(tm) + h[j] * hiz(th[i] + dt))
+            return s, int(round(dol / (2 * math.pi))), 0
         if self.tur == "koni":
             k = self.egim
             olcek = math.sqrt(1.0 + k * k)
@@ -1132,6 +1150,7 @@ def govdeler(e) -> List[Govde]:
                     for dl in g.delikler:
                         for i in dl.yuzler:
                             g.vurgu.extend(bilgiler[i].donguler)
+                        g.vurgu.extend(dl.agiz)
             except (AcisHatasi, IndexError, ValueError, TypeError, AttributeError) as h:
                 g.hata = f"ACIS verisi okunamadı ({h})"
             if turler and not g.hata:
@@ -1175,6 +1194,8 @@ def _yuz_bilgisi(alan: float, dunya: List[List[V3]], yuzey: "Yuzey", donus, olce
     b = profil.YuzBilgi(alan, dunya, yuzey.tur)
     if yuzey.tur == "duzlem":
         b.normal = yon(yuzey.n)
+    elif yuzey.tur == "koni" and abs(yuzey.oran - 1.0) > 1e-9:
+        b.tur = "eliptik"  # eliptik silindir: yuvarlak delik / büküm sayılmaz
     elif yuzey.tur == "koni":
         b.eksen, b.merkez = yon(yuzey.a), donus(yuzey.c)
         b.r0, b.egim = yuzey.r0 * olcek, yuzey.egim

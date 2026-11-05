@@ -1398,8 +1398,8 @@ class AnaPencere(QMainWindow):
             dl.setWordWrap(True)
             gf.addRow("Delikler", dl)
             dib = QCheckBox("Delik içleri boyanmaz")
-            dib.setToolTip("Küçük deliklerin içine toz girmez (Faraday kafesi); işaretlenirse silindir duvarları "
-                           "alandan düşülür, havşa ağzı boyanır")
+            dib.setToolTip("Küçük deliklerin içine toz girmez (Faraday kafesi); işaretlenirse bütün delik ve kesiklerin "
+                           "duvarları alandan düşülür, havşa ağzı boyanır")
             dib.setChecked(bool(kaynak.get("delik_ici_boyanmaz")))
             dib.toggled.connect(lambda b_: self._kaynak(r, delik_ici_boyanmaz=b_))
             gf.addRow("", dib)

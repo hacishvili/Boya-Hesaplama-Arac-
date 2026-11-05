@@ -141,9 +141,8 @@ def kaynak_hacmi(k: Dict[str, Any]) -> Optional[float]:
 def kaynak_aciklamasi(k: Dict[str, Any]) -> str:
     s = _kaynak_aciklamasi(k)
     if k.get("tur") == "3d" and k.get("delikler"):
-        n = len(k["delikler"])
-        h = sum(1 for d in k["delikler"] if d.get("havsa_cap"))
-        s += f"; {n} delik" + (f" ({h} havşalı)" if h else "")
+        import profil
+        s += "; " + profil.delik_sayimi(k["delikler"])
         if k.get("delik_ici_boyanmaz"):
             s += ", delik içi boyanmaz"
     return s

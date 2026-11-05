@@ -310,23 +310,30 @@ def sac_coz(yuzler: Sequence[YuzBilgi]) -> Optional[Sac]:
     return Sac(t, yuz, toplam - yuz)
 
 
-# ---------------------------------------------------------------- delik ve havşa
+# ---------------------------------------------------------------- delik, havşa ve kesikler
+
+DELIK_TURLERI = ("yuvarlak", "kanal", "elips", "dikdörtgen", "serbest")
+
 
 @dataclass
 class Delik:
-    cap: float                        # en dar silindirin çapı (mm)
+    cap: float                        # yuvarlak: en dar silindirin çapı; diğerleri: uzun ölçü (mm)
     havsa_cap: float = 0.0            # havşa / kademe ağzının çapı (0: yok)
     havsa_aci: float = 0.0            # konik havşanın tepe açısı (derece; 0: düz kademe)
     alan: float = 0.0                 # deliğin bütün yüzeyleri (duvar + havşa), mm²
-    duvar: float = 0.0                # silindir duvarları, mm² (delik içi boyanmaz seçeneğinde düşülür)
+    duvar: float = 0.0                # duvarlar, mm² (delik içi boyanmaz seçeneğinde düşülür)
     yuzler: List[int] = field(default_factory=list)
+    tur: str = "yuvarlak"             # DELIK_TURLERI
+    en: float = 0.0                   # kanal / elips / dikdörtgen: kısa ölçü (mm)
+    cevre: float = 0.0                # serbest kesim: ağız çevresi (mm)
+    agiz: List[List[V3]] = field(default_factory=list)   # önizleme için ağız döngüleri
 
     def sozluk(self) -> Dict:
         return {"cap": self.cap, "havsa_cap": self.havsa_cap, "havsa_aci": self.havsa_aci, "alan": self.alan,
-                "duvar": self.duvar}
+                "duvar": self.duvar, "tur": self.tur, "en": self.en, "cevre": self.cevre}
 
     def olcekle(self, k: float) -> None:
-        self.cap, self.havsa_cap = self.cap * k, self.havsa_cap * k
+        self.cap, self.havsa_cap, self.en, self.cevre = self.cap * k, self.havsa_cap * k, self.en * k, self.cevre * k
         self.alan, self.duvar = self.alan * k * k, self.duvar * k * k
 
 
@@ -338,36 +345,145 @@ def _dongu_alani(d: Sequence[V3], n: V3) -> float:
     return abs(_ic(s, n)) / 2
 
 
+def _taban(n: V3):
+    e1 = _birim(_dis(n, (1.0, 0.0, 0.0) if abs(n[0]) < 0.9 else (0.0, 1.0, 0.0)))
+    return e1, _dis(n, e1)
+
+
+def _zarf(p: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    """Dışbükey zarf (monoton zincir)."""
+    p = sorted(set(p))
+    if len(p) < 3:
+        return p
+    cap = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    alt, ust = [], []
+    for q in p:
+        while len(alt) >= 2 and cap(alt[-2], alt[-1], q) <= 0:
+            alt.pop()
+        alt.append(q)
+    for q in reversed(p):
+        while len(ust) >= 2 and cap(ust[-2], ust[-1], q) <= 0:
+            ust.pop()
+        ust.append(q)
+    return alt[:-1] + ust[:-1]
+
+
+def sekil(p: List[Tuple[float, float]]) -> Tuple[str, float, float, float]:
+    """Düzlemdeki kapalı ağız konturunun biçimi: (tür, uzun ölçü, kısa ölçü, çevre). En küçük alanlı çevreleyen
+    dikdörtgenin çerçevesinde noktalar denenir: elips (çember), kanal (iki ucu yarım daire), dikdörtgen; hiçbiri
+    değilse serbest."""
+    n = len(p)
+    cevre = sum(math.dist(p[i], p[(i + 1) % n]) for i in range(n))
+    z = _zarf(p)
+    en_iyi = None
+    for i in range(len(z)):
+        a, b = z[i], z[(i + 1) % len(z)]
+        L = math.dist(a, b)
+        if L <= 0:
+            continue
+        u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+        v = (-u[1], u[0])
+        xs = [q[0] * u[0] + q[1] * u[1] for q in p]
+        ys = [q[0] * v[0] + q[1] * v[1] for q in p]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        if en_iyi is None or w * h < en_iyi[0]:
+            en_iyi = (w * h, w, h, u, v, (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2)
+    if en_iyi is None:
+        return "serbest", 0.0, 0.0, cevre
+    _, w, h, u, v, cx, cy = en_iyi
+    if h > w:
+        w, h, u, v, cx, cy = h, w, v, (-u[0], -u[1]), cy, -cx
+    sik = []  # doğru kenarlar iki noktayla gelir: aradaki noktalar da denensin (üçgen dikdörtgen sanılmasın)
+    for i in range(n):
+        a_, b_ = p[i], p[(i + 1) % n]
+        sik += [(a_[0] + (b_[0] - a_[0]) * t / 8, a_[1] + (b_[1] - a_[1]) * t / 8) for t in range(8)]
+    yerel = [(q[0] * u[0] + q[1] * u[1] - cx, q[0] * v[0] + q[1] * v[1] - cy) for q in sik]
+    if h <= 0:
+        return "serbest", w, h, cevre
+    a_, b_ = w / 2, h / 2
+    tol = 0.01
+    if all(abs((x / a_) ** 2 + (y / b_) ** 2 - 1) < 2 * tol for x, y in yerel):
+        return ("yuvarlak" if w - h <= tol * w else "elips"), w, h, cevre
+    d = a_ - b_  # kanal: orta doğru parçasına uzaklık yarı genişlik
+    if all(abs(math.hypot(max(abs(x) - d, 0.0), y) - b_) < tol * b_ for x, y in yerel):
+        return "kanal", w, h, cevre
+    if all(abs(max(abs(x) / a_, abs(y) / b_) - 1) < tol for x, y in yerel):
+        return "dikdörtgen", w, h, cevre
+    return "serbest", w, h, cevre
+
+
 def delik_bul(yuzler: Sequence[YuzBilgi]) -> List[Delik]:
-    """Yuvarlak delikler: kenarı bir düz yüzün iç döngüsünde (delik ağzında) olan silindir / koni yüzlerinden
-    başlayıp kenar paylaşan eş eksenli silindir / konilerle büyüyen, eksen çevresinde tam dönen yüz kümeleri.
-    Aynı eksendeki kümeler (kademeli delik: araya düz halka girer) birleşir. Koni: havşa; büyük silindir: kademe."""
+    """Delik ve iç kesikler.
+    1. Yuvarlak: kenarı bir düz yüzün iç döngüsünde (ağız) olan silindir / koni yüzlerinden başlayıp kenar paylaşan
+       eş eksenli silindir / konilerle büyüyen, eksen çevresinde tam dönen yüz kümeleri. Aynı eksendeki kümeler
+       (kademe: araya düz halka girer) birleşir. Koni: havşa; büyük silindir: kademe.
+    2. Diğer iç kesikler (kanal, oval, elips, dikdörtgen pencere, serbest): yuvarlak deliğe ait olmayan iç döngüler.
+       Biçim ağız konturundan (sekil); karşı yüzdeki aynı ağız (boydan boya kesik) bir kez sayılır. Duvarlar: ağız
+       kenarlarını paylaşan, kendisinde iç döngü olmayan yüzler."""
     pts = [q for y in yuzler for d in y.donguler for q in d]
     if not pts:
         return []
     olcu = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(3)) or 1.0
     tol = olcu * 1e-4
-    ic_kenar = set()
-    for y in yuzler:
+    ic_dongu = []  # (yüz, döngü sırası)
+    for yi, y in enumerate(yuzler):
         if y.tur == "duzlem" and y.normal is not None and len(y.donguler) >= 2 and len(y.kenarlar) == len(y.donguler):
             alanlar = [_dongu_alani(d, y.normal) for d in y.donguler]
             dis = max(range(len(alanlar)), key=alanlar.__getitem__)
-            for i, k in enumerate(y.kenarlar):
-                if i != dis:
-                    ic_kenar |= k
+            ic_dongu += [(yi, i) for i in range(len(alanlar)) if i != dis]
+    if not ic_dongu:
+        return []
+    ic_kenar = frozenset().union(*(yuzler[yi].kenarlar[i] for yi, i in ic_dongu))
+    kenar = {i: frozenset().union(*y.kenarlar) if y.kenarlar else frozenset() for i, y in enumerate(yuzler)}
+    out = _yuvarlak_delikler(yuzler, ic_kenar, kenar, tol)
+    yuvarlak_kenar = frozenset().union(*(kenar[i] for d in out for i in d.yuzler)) if out else frozenset()
+    ana = {yi for yi, _ in ic_dongu}  # iç döngüsü olan yüzler (sacın iki yüzü, kademe halkası)
+
+    gorulen: List[Tuple[V3, V3, str, float, float, Delik]] = []  # (normal, merkez, tür, uzun, kısa, kesik)
+    for yi, i in ic_dongu:
+        k = yuzler[yi].kenarlar[i]
+        if k & yuvarlak_kenar:
+            continue
+        y = yuzler[yi]
+        d = y.donguler[i]
+        e1, e2 = _taban(y.normal)
+        tur, w, h, cevre = sekil([(_ic(q, e1), _ic(q, e2)) for q in d])
+        m = tuple(sum(q[j] for q in d) / len(d) for j in range(3))
+        duvar = [j for j, kj in kenar.items() if j != yi and j not in ana and kj & k]
+        es = next((g for g in gorulen if abs(abs(_ic(g[0], y.normal)) - 1) < 1e-6 and g[2] == tur
+                   and abs(g[3] - w) <= 10 * tol and abs(g[4] - h) <= 10 * tol
+                   and _boy_dik(_cik(m, g[1]), y.normal) <= 10 * tol), None)
+        if es is not None:  # karşı yüzdeki ağız: aynı kesik
+            dl = es[5]
+            for j in duvar:
+                if j not in dl.yuzler:
+                    dl.yuzler.append(j)
+                    dl.duvar += yuzler[j].alan
+            dl.alan = dl.duvar
+            dl.agiz.append(d)
+            continue
+        dl = Delik(w, tur=tur, en=h, cevre=cevre, yuzler=list(duvar), agiz=[d])
+        dl.duvar = dl.alan = sum(yuzler[j].alan for j in duvar)
+        gorulen.append((y.normal, m, tur, w, h, dl))
+        out.append(dl)
+    return out
+
+
+def _boy_dik(d: V3, n: V3) -> float:
+    """d'nin n'ye dik bileşeninin boyu."""
+    return math.sqrt(max(0.0, _ic(d, d) - _ic(d, n) ** 2))
+
+
+def _yuvarlak_delikler(yuzler, ic_kenar, kenar, tol) -> List[Delik]:
     koni = [i for i, y in enumerate(yuzler) if y.tur == "koni" and y.eksen is not None and y.merkez is not None
             and y.kenarlar]
-    if not koni or not ic_kenar:
-        return []
 
     def eksen_ayni(i, j):
         a, b = yuzler[i], yuzler[j]
         if abs(abs(_ic(a.eksen, b.eksen)) - 1.0) > 1e-6:
             return False
-        d = _cik(b.merkez, a.merkez)
-        return math.sqrt(max(0.0, _ic(d, d) - _ic(d, a.eksen) ** 2)) <= tol
+        return _boy_dik(_cik(b.merkez, a.merkez), a.eksen) <= tol
 
-    kenar = {i: frozenset().union(*yuzler[i].kenarlar) for i in koni}
     tohum = [i for i in koni if kenar[i] & ic_kenar]
     kume: List[List[int]] = []
     goruldu = set()
@@ -383,8 +499,7 @@ def delik_bul(yuzler: Sequence[YuzBilgi]) -> List[Delik]:
                 if j not in goruldu and kenar[i] & kenar[j] and eksen_ayni(i, j):
                     goruldu.add(j)
                     yigin.append(j)
-        # aynı eksendeki önceki kümeye katılır (kademeli delik)
-        for e in kume:
+        for e in kume:  # aynı eksendeki önceki kümeye katılır (kademeli delik)
             if eksen_ayni(e[0], k[0]):
                 e.extend(k)
                 break
@@ -393,20 +508,15 @@ def delik_bul(yuzler: Sequence[YuzBilgi]) -> List[Delik]:
     out = []
     for k in kume:
         a = yuzler[k[0]]
-        e1 = _birim(_dis(a.eksen, (1.0, 0.0, 0.0) if abs(a.eksen[0]) < 0.9 else (0.0, 1.0, 0.0)))
-        e2 = _dis(a.eksen, e1)
+        e1, e2 = _taban(a.eksen)
 
         def yaricaplar(i):
-            out_ = []
-            for d in yuzler[i].donguler:
-                for q in d:
-                    v = _cik(q, a.merkez)
-                    out_.append(math.hypot(_ic(v, e1), _ic(v, e2)))
-            return out_
+            return [math.hypot(_ic(_cik(q, a.merkez), e1), _ic(_cik(q, a.merkez), e2))
+                    for d in yuzler[i].donguler for q in d]
         acilar = sorted(math.atan2(_ic(_cik(q, a.merkez), e2), _ic(_cik(q, a.merkez), e1))
                         for i in k for d in yuzler[i].donguler for q in d)
         bosluk = max([b - c for c, b in zip(acilar, acilar[1:])] + [acilar[0] + 2 * math.pi - acilar[-1]])
-        if bosluk > math.radians(30):  # tam dönmüyor: yuva ucu, yay köşe ... delik değil
+        if bosluk > math.radians(30):  # tam dönmüyor: kanal ucu, yay köşe ... (kesik olarak bulunur)
             continue
         sil = [i for i in k if abs(yuzler[i].egim) < 1e-6]
         kon = [i for i in k if abs(yuzler[i].egim) >= 1e-6]
@@ -422,16 +532,44 @@ def delik_bul(yuzler: Sequence[YuzBilgi]) -> List[Delik]:
     return out
 
 
+def _mm(x: float) -> str:
+    return f"{round(x, 1):g}".replace(".", ",")
+
+
+def delik_adi(d: Dict) -> str:
+    tur = d.get("tur", "yuvarlak")
+    if tur == "yuvarlak":
+        m = f"Ø{_mm(d['cap'])}"
+        if d.get("havsa_cap"):
+            m += (f" havşa Ø{_mm(d['havsa_cap'])} × {round(d['havsa_aci']):g}°" if d.get("havsa_aci")
+                  else f" kademe Ø{_mm(d['havsa_cap'])}")
+        return m
+    if tur == "serbest":
+        return f"serbest kesik {_mm(d['cap'])} × {_mm(d.get('en', 0))} (çevre {_mm(d.get('cevre', 0))})"
+    return f"{tur} {_mm(d['cap'])} × {_mm(d.get('en', 0))}"
+
+
 def delik_ozeti(delikler: Sequence[Dict]) -> List[Tuple[int, str]]:
-    """Aynı ölçülü delikler gruplanır: [(adet, 'Ø6,6 havşa Ø12,4 × 90°'), ...] (büyükten küçüğe)."""
-    say: Dict[Tuple, int] = {}
+    """Aynı ölçülü delikler gruplanır: [(adet, 'Ø6 havşa Ø12 × 90°'), (2, 'kanal 30 × 8'), ...]."""
+    say: Dict[str, int] = {}
+    sira: Dict[str, Tuple] = {}
     for d in delikler:
-        a = (round(d["cap"], 1), round(d.get("havsa_cap", 0.0), 1), round(d.get("havsa_aci", 0.0)))
-        say[a] = say.get(a, 0) + 1
-    out = []
-    for (cap, hc, ha), n in sorted(say.items(), key=lambda x: -x[0][0]):
-        m = f"Ø{cap:g}".replace(".", ",")
-        if hc:
-            m += (f" havşa Ø{hc:g} × {ha:g}°" if ha else f" kademe Ø{hc:g}").replace(".", ",")
-        out.append((n, m))
-    return out
+        ad = delik_adi(d)
+        say[ad] = say.get(ad, 0) + 1
+        sira[ad] = (DELIK_TURLERI.index(d.get("tur", "yuvarlak")), -round(d["cap"], 1))
+    return [(say[a], a) for a in sorted(say, key=lambda a: (*sira[a], -say[a]))]
+
+
+def delik_sayimi(delikler: Sequence[Dict]) -> str:
+    """Açıklama için: '3 delik (2 havşalı), 2 kanal, 1 elips'."""
+    parca = []
+    yuv = [d for d in delikler if d.get("tur", "yuvarlak") == "yuvarlak"]
+    if yuv:
+        h = sum(1 for d in yuv if d.get("havsa_cap"))
+        parca.append(f"{len(yuv)} delik" + (f" ({h} havşalı)" if h else ""))
+    for t, ad in (("kanal", "kanal"), ("elips", "elips"), ("dikdörtgen", "dikdörtgen kesik"),
+                  ("serbest", "serbest kesik")):
+        n = sum(1 for d in delikler if d.get("tur") == t)
+        if n:
+            parca.append(f"{n} {ad}")
+    return ", ".join(parca)
