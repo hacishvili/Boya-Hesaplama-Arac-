@@ -340,6 +340,13 @@ class Ag:
     tel: bool = False                   # yuzler yalnız kenar döngüleri (önizlemede doldurulmaz)
     kapali_hazir: Optional[bool] = None
     vurgu: List[List[Nokta3]] = field(default_factory=list)  # önizlemede renkli döngüler (delik, havşa)
+    kenarlar: List[List[Nokta3]] = field(default_factory=list)  # ACIS kenarları (kaynak dikişi seçimi)
+    oneri: List[int] = field(default_factory=list)            # önerilen kaynak kenarları (başka gövdeye değen)
+    kenar_carpan: List[int] = field(default_factory=list)     # birleşik kalemde kenarın gövde adedi (boş: 1)
+    yardimci: List[List[Nokta3]] = field(default_factory=list)  # yalnız görünüm: silindir doğrultmanları
+    yuz_donguleri: List[List[List[Nokta3]]] = field(default_factory=list)  # ACIS yüzleri: döngüler (yüzey seçimi)
+    yuz_alanlari: List[float] = field(default_factory=list)   # mm² (birleşik kalemde gövde adediyle çarpılmış)
+    yuz_turleri: List[str] = field(default_factory=list)      # duzlem / silindir / koni / kure / torus / spline
 
     @property
     def alan(self) -> float:

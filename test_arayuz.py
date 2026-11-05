@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Pencereler ekransız (offscreen) açılır: içe aktarma, kalıp, ayrıntı düzenleme, PDF."""
+import math
 import os
 import shutil
 import tempfile
@@ -16,7 +17,8 @@ import pencere  # noqa: E402
 from PySide6.QtWidgets import QComboBox, QTableWidgetSelectionRange  # noqa: E402
 
 pencere.QComboBox, pencere.QTableWidgetSelectionRange = QComboBox, QTableWidgetSelectionRange
-from hesap import kalem_sonucu  # noqa: E402
+from hesap import kaynak_alani, kalem_sonucu  # noqa: E402
+from PySide6.QtCore import QPointF, Qt  # noqa: E402
 
 
 class Arayuz(unittest.TestCase):
@@ -370,6 +372,147 @@ class Arayuz(unittest.TestCase):
         self.assertEqual(len(d.ayar().tozlar), len(w.ayar.tozlar))
         w.degisti = False
         w.close()
+
+    def test_islem_fiyatlari(self):
+        import test_profil
+        w = pencere.AnaPencere()
+        d = pencere.AyarPenceresi(w.ayar)
+        self.assertEqual([i.ad for i in d.islemler()], ["Kaynak", "Havşa", "Polisaj"])
+        d.islem.cellWidget(0, 2).setValue(40.0)   # kaynak 40 / m
+        self.assertTrue(d.islem.cellWidget(0, 4).isChecked())   # kaynak teli eklenir
+        self.assertIn("1 makara", d.tel_bilgi.text())
+        d.tel_fiyat.setValue(0.0)                 # bu testte yalnız işçilik
+        d.islem.cellWidget(1, 2).setValue(2.5)    # havşa 2,5 / adet
+        d._islem_satiri(pencere.Islem("Kumlama", "m²", 50.0))
+        w.ayar = d.ayar()
+        self.assertEqual(len(w.ayar.islemler), 4)
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        doc.modelspace().add_3dsolid().sat = test_profil.delikli_plaka([(20, 20, "havsa"), (40, 20, "havsa"),
+                                                                        (60, 30, "duz")])
+        yol = os.path.join(self.klasor, "islem.dxf")
+        doc.saveas(yol)
+        w.kalemler.extend(pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w).kalemler())
+        w.kalemler.append(pencere.Kalem("b", {"tur": "elle", "alan_m2": 0.1}, toz=w.ayar.tozlar[0].ad))
+        w._yenile(0)
+        s = kalem_sonucu(w.kalemler[0], w.ayar)
+        self.assertEqual(s.islem_detay["Havşa"], (2.0, 5.0))           # çizimden 2 havşa
+        panel = w.ayrinti_alan.widget()
+        cb = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 2)"][0]
+        cb.setChecked(True)
+        sp = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.isEnabled() and x.suffix() == " adet"][0]
+        sp.setValue(3)
+        self.assertEqual(w.kalemler[0].islemler["Havşa"], 3)
+        cb.setChecked(False)                                           # çizime döner
+        self.assertNotIn("Havşa", w.kalemler[0].islemler)
+        elle = [c for c in panel.findChildren(pencere.QCheckBox) if c.text() == "elle (çizimden 0,000)"][0]
+        elle.setChecked(True)                                          # tek gövde, dikiş seçilmemiş: elle
+        kaynak = [x for x in panel.findChildren(pencere.QDoubleSpinBox) if x.suffix() == " m"][0]
+        kaynak.setValue(0.5)
+        self.assertAlmostEqual(kalem_sonucu(w.kalemler[0], w.ayar).islem_tl, 0.5 * 40 + 2 * 2.5)
+        self.assertIn("Kaynak", w.toplam.text())
+        self.assertTrue(w.tablo.item(0, 10).text().endswith(w.ayar.para))
+        # çoklu seçimde polisaj hepsine
+        w.tablo.setRangeSelected(pencere.QTableWidgetSelectionRange(0, 0, 1, len(pencere.SUTUNLAR) - 1), True)
+        w._secim()
+        sp = [x for x in w.ayrinti_alan.widget().findChildren(pencere.QDoubleSpinBox) if x.suffix() == " m²"][0]
+        sp.setValue(0.2)
+        self.assertEqual([k.islemler.get("Polisaj") for k in w.kalemler], [0.2, 0.2])
+        w.degisti = False
+        w.close()
+
+    def test_kaynak_yerleri(self):
+        import test_acis
+        import test_profil
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_3dsolid().sat = test_profil.delikli_plaka([])
+        tasi = (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 50.0, 30.0, 5.0, 1.0, "no_rotate", "no_reflect", "no_shear")
+        m.add_3dsolid().sat = test_acis.silindir(10.0, 0.0, 95.0, donusum=tasi).satirlar()  # sacın üstünde Ø20 boru
+        yol = os.path.join(self.klasor, "montaj.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        for i in w.ayar.islemler:
+            i.fiyat = {"Kaynak": 40.0}.get(i.ad, 0.0)
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        ayri = d.kalemler()
+        cevre = 2 * math.pi * 10
+        self.assertEqual(ayri[0].kaynak["kaynak_dikisleri"], [])          # sac: değme kenarı boru tarafında
+        self.assertEqual(len(ayri[1].kaynak["kaynak_dikisleri"]), 1)     # borunun alt çemberi önerilir
+        self.assertAlmostEqual(kalem_sonucu(ayri[1], w.ayar).islem_detay["Kaynak"][0], cevre / 1000, places=4)
+        d.birlestir.setChecked(True)
+        d.tablo.cellWidget(1, 5).setValue(4)                             # 4 boru: dikiş 4 kez
+        tek = d.kalemler()[0]
+        self.assertAlmostEqual(hesap_kaynak(tek), 4 * cevre, delta=0.05)
+        self.assertEqual(len(tek.geo.oneri), 1)
+        # pencere: öneri iki taraflı yapılır, sacın bir kenarı eklenir
+        k = ayri[1]
+        p = pencere.KaynakPenceresi(k.geo, k.kaynak["kaynak_dikisleri"])
+        i = k.geo.oneri[0]
+        p.gorunum.tikla(i)                                               # tek → iki taraflı
+        self.assertEqual(p.dikisler()[0][1], 2)
+        self.assertIn("iki taraflı", p.ozet.text())
+        p.gorunum.tikla(i)                                               # kaldır
+        self.assertEqual(p.dikisler(), [])
+        p._oneriler()
+        self.assertEqual(len(p.dikisler()), 1)
+        p.gorunum.resize(600, 400)
+        p.gorunum.grab()                                                 # çizim hatasız
+        w.degisti = False
+        w.close()
+
+    def test_polisaj_yuzeyleri(self):
+        import test_acis
+        import test_profil
+        doc = ezdxf.new("R2007")
+        doc.header["$INSUNITS"] = 4
+        m = doc.modelspace()
+        m.add_3dsolid().sat = test_profil.delikli_plaka([])
+        tasi = (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 50.0, 30.0, 5.0, 1.0, "no_rotate", "no_reflect", "no_shear")
+        m.add_3dsolid().sat = test_acis.silindir(10.0, 0.0, 95.0, donusum=tasi).satirlar()
+        yol = os.path.join(self.klasor, "polisaj.dxf")
+        doc.saveas(yol)
+        w = pencere.AnaPencere()
+        d = pencere.IceAktar(yol, w.ayar.tozlar[0].ad, w)
+        sac = d.kalemler()[0]
+        ag = sac.geo
+        self.assertEqual(len(ag.yuz_donguleri), len(ag.yuz_alanlari))
+        self.assertAlmostEqual(sum(ag.yuz_alanlari), kaynak_alani(sac.kaynak), delta=0.5)
+        p = pencere.YuzeyPenceresi(ag, [])
+        p.gorunum.resize(600, 400)
+        p.gorunum.pitch = math.pi / 2                                  # tepeden bakış: üst yüz en yakın
+        p.gorunum.grab()
+        ust = max(range(len(ag.yuz_alanlari)), key=lambda i: (ag.yuz_turleri[i] == "duzlem",
+                                                              max(q[2] for dd in ag.yuz_donguleri[i] for q in dd),
+                                                              ag.yuz_alanlari[i]))
+        i = p.gorunum._en_yakin(QPointF(300, 200))
+        self.assertEqual(i, ust)
+        p.gorunum.tikla(i)
+        self.assertEqual(p.secim(), [[i, round(ag.yuz_alanlari[i], 3)]])
+        self.assertEqual(p.liste.item(i).checkState(), Qt.Checked)
+        p.liste.item(i).setCheckState(Qt.Unchecked)                    # listeden bırak
+        self.assertEqual(p.secim(), [])
+        p.liste.item(i).setCheckState(Qt.Checked)
+        self.assertIn("1</b> yüzey", p.ozet.text())
+        sac.kaynak["yuzey_secimi"] = {"Polisaj": p.secim()}
+        w.ayar.islemler[2].fiyat = 100.0
+        s = kalem_sonucu(sac, w.ayar)
+        self.assertAlmostEqual(s.islem_detay["Polisaj"][0], ag.yuz_alanlari[i] / 1e6)
+        d.birlestir.setChecked(True)                                   # birleşik: yüzler ve seçim taşınır
+        d.tablo.cellWidget(0, 5).setValue(2)
+        d.ogeler[0][2]["yuzey_secimi"] = {"Polisaj": p.secim()}
+        tek = d.kalemler()[0]
+        self.assertGreater(len(tek.geo.yuz_donguleri), len(ag.yuz_donguleri))
+        self.assertAlmostEqual(kalem_sonucu(tek, w.ayar).islem_detay["Polisaj"][0], 2 * ag.yuz_alanlari[i] / 1e6,
+                               places=6)
+        w.degisti = False
+        w.close()
+
+
+def hesap_kaynak(k):
+    from hesap import kaynak_boyu_mm
+    return kaynak_boyu_mm(k.kaynak)
 
 
 if __name__ == "__main__":

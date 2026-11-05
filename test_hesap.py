@@ -118,6 +118,71 @@ class Toz_(unittest.TestCase):
         self.assertAlmostEqual(kaliplar.hacim("Konik ayak (boru)", {"D1": 40, "D2": 40, "t": 2, "L": 100}),
                                math.pi / 4 * (40 ** 2 - 36 ** 2) * 100)
 
+    def test_islemler(self):
+        a = hesap.Ayarlar()
+        fiyat = {"Kaynak": 40.0, "Havşa": 2.5, "Polisaj": 300.0}
+        for i in a.islemler:
+            i.fiyat = fiyat[i.ad]
+            i.tel = False                     # tel maliyeti test_kaynak_teli'de
+        delik = [{"cap": 6, "havsa_cap": 12, "havsa_aci": 90, "alan": 1, "duvar": 1}] * 3 + \
+                [{"cap": 6, "havsa_cap": 12, "havsa_aci": 0, "alan": 1, "duvar": 1}, {"cap": 8, "alan": 1, "duvar": 1}]
+        k = hesap.Kalem("ayak", {"tur": "3d", "alan": 1e5, "delikler": delik}, adet=10)
+        s = hesap.kalem_sonucu(k, a)
+        self.assertEqual(s.islem_detay, {"Havşa": (3.0, 3 * 2.5 * 10)})  # yalnız konik havşa (kademe değil)
+        k.islemler = {"Kaynak": 0.35, "Polisaj": 0.02, "Havşa": 4}   # havşa elle: çizimdekini ezer
+        s = hesap.kalem_sonucu(k, a)
+        self.assertAlmostEqual(s.islem_tl, 10 * (0.35 * 40 + 0.02 * 300 + 4 * 2.5))
+        self.assertAlmostEqual(s.tutar, s.toz_tl + s.proses_tl + s.islem_tl)
+        self.assertAlmostEqual(s.birim_fiyat, s.tutar / 10)
+        o = hesap.ozet([k, hesap.Kalem("x", {"tur": "elle", "alan_m2": 0.1}, islemler={"Kaynak": 1.0})], a)
+        self.assertAlmostEqual(o.islem_bazinda["Kaynak"][0], 10 * 0.35 + 1.0)
+        self.assertAlmostEqual(o.islem_tl, s.islem_tl + 40.0)
+        self.assertEqual(hesap.Kalem.sozlukten(k.sozluk()).islemler, k.islemler)
+        b = hesap.Ayarlar.sozlukten(a.sozluk())
+        self.assertEqual([(i.ad, i.birim, i.fiyat, i.kaynak) for i in b.islemler],
+                         [("Kaynak", "m", 40.0, "kaynak"), ("Havşa", "adet", 2.5, "havsa"), ("Polisaj", "m²", 300.0, "yuzey")])
+        self.assertEqual(len(hesap.Ayarlar.sozlukten({}).islemler), 3)          # eski ayar dosyası: varsayılanlar
+        klasor = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, klasor, True)
+        csv = os.path.join(klasor, "i.csv")
+        rapor.csv_yaz(csv, [k], a)
+        with open(csv, encoding="utf-8-sig") as f:
+            metin = f.read()
+        self.assertIn("İşlem: Polisaj", metin)
+        self.assertIn("Adet fiyatı", metin)
+        self.assertIn("İşlemler", rapor.html_rapor([k], a))
+        k.islemler = {"Kaynak": -1}
+        with self.assertRaises(ValueError):
+            hesap.kalem_sonucu(k, a)
+
+    def test_kaynak_teli(self):
+        a = hesap.Ayarlar()                   # 0,8 mm tel, 110 TL/kg, 15 kg makara, çelik 7,85
+        kg_m = math.pi * 0.4 ** 2 * 1000 * 7.85e-6
+        self.assertAlmostEqual(a.kaynak_teli.kg_m(7.85), kg_m)
+        self.assertAlmostEqual(a.tel_tl_m, kg_m * 110)
+        self.assertAlmostEqual(a.kaynak_teli.makara_m(7.85), 15 / kg_m)
+        a.islemler[0].fiyat = 20.0            # işçilik / m; tel üstüne eklenir
+        k = hesap.Kalem("ayak", {"tur": "elle", "alan_m2": 0.1, "kaynak_dikisleri": [[0, 2, 250.0], [3, 1, 500.0]]},
+                        adet=4)
+        s = hesap.kalem_sonucu(k, a)          # 2·250 + 500 = 1 m / adet
+        self.assertAlmostEqual(s.islem_detay["Kaynak"][1], 4 * 1.0 * (20 + kg_m * 110))
+        self.assertAlmostEqual(s.tel_kg, 4 * kg_m)
+        self.assertAlmostEqual(hesap.ozet([k, k], a).tel_kg, 8 * kg_m)
+        b = hesap.Ayarlar.sozlukten({**a.sozluk(), "kaynak_teli": {"cap_mm": 1.0, "kg_fiyat": 90, "makara_kg": 5}})
+        self.assertEqual((b.kaynak_teli.cap_mm, b.kaynak_teli.kg_fiyat, b.kaynak_teli.makara_kg), (1.0, 90.0, 5.0))
+        self.assertTrue(b.islemler[0].tel)
+        self.assertIn("Kaynak teli", rapor.html_rapor([k], a))
+
+    def test_yuzey_secimi(self):
+        a = hesap.Ayarlar()
+        a.islemler[2].fiyat = 300.0                                       # polisaj / m²
+        k = hesap.Kalem("x", {"tur": "elle", "alan_m2": 0.5}, adet=2)
+        self.assertNotIn("Polisaj", hesap.kalem_sonucu(k, a).islem_detay)  # seçim yok: bütün parça sayılmaz
+        k.kaynak["yuzey_secimi"] = {"Polisaj": [[0, 20000.0], [3, 5000.0]]}
+        self.assertAlmostEqual(hesap.kalem_sonucu(k, a).islem_detay["Polisaj"][1], 2 * 0.025 * 300)
+        k.islemler = {"Polisaj": 0.1}                                      # elle ezer
+        self.assertAlmostEqual(hesap.kalem_sonucu(k, a).islem_detay["Polisaj"][0], 0.1)
+
     def test_sayi(self):
         self.assertEqual(sayi(1234567.891, 2), "1.234.567,89")
         self.assertEqual(sayi(0.5, 0), "0")
